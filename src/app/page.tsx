@@ -1,0 +1,19 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { getToken } from "@/lib/api";
+
+// Entry point: send users to the dashboard if logged in, else to login.
+export default function Home() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(getToken() ? "/dashboard" : "/login");
+  }, [router]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center text-gray-400">
+      Loading…
+    </div>
+  );
+}
