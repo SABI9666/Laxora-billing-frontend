@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearSession } from "@/lib/api";
+import ShopSwitcher from "@/components/ShopSwitcher";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: "📊" },
+  { href: "/pos", label: "POS / Sell", icon: "🛒" },
   { href: "/invoices", label: "Invoices", icon: "🧾" },
-  { href: "/parties", label: "Parties", icon: "👥" },
-  { href: "/items", label: "Items", icon: "📦" },
+  { href: "/items", label: "Products", icon: "💡" },
+  { href: "/categories", label: "Categories", icon: "🏷️" },
+  { href: "/stock", label: "Stock", icon: "📦" },
+  { href: "/parties", label: "Customers & Suppliers", icon: "👥" },
   { href: "/payments", label: "Payments", icon: "💰" },
+  { href: "/franchise", label: "Franchise", icon: "🏢" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
@@ -25,7 +30,8 @@ export default function Sidebar() {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-gray-200 bg-white">
       <div className="px-6 py-5 text-xl font-bold text-brand">Laxora</div>
-      <nav className="flex-1 space-y-1 px-3">
+      <ShopSwitcher />
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3">
         {nav.map((item) => {
           const active = pathname.startsWith(item.href);
           return (
