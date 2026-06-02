@@ -6,10 +6,17 @@ import { formatMoney } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
+type Category = { id: string; name: string };
+
 type Item = {
   id: string;
   name: string;
+  categoryId?: string | null;
+  category?: { id: string; name: string } | null;
   sku?: string;
+  barcode?: string;
+  brand?: string;
+  wattage?: string;
   hsn?: string;
   unit: string;
   salePrice: string;
@@ -22,7 +29,11 @@ type Item = {
 
 const empty = {
   name: "",
+  categoryId: "",
   sku: "",
+  barcode: "",
+  brand: "",
+  wattage: "",
   hsn: "",
   unit: "PCS",
   salePrice: 0,
@@ -35,14 +46,19 @@ const empty = {
 
 export default function ItemsPage() {
   const [items, setItems] = useState<Item[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [form, setForm] = useState<any>(empty);
   const [saving, setSaving] = useState(false);
 
   async function load() {
-    const r = await api<{ items: Item[] }>("/api/items");
+    const [r, c] = await Promise.all([
+      api<{ items: Item[] }>("/api/items"),
+      api<{ categories: Category[] }>("/api/categories"),
+    ]);
     setItems(r.items);
+    setCategories(c.categories);
   }
   useEffect(() => {
     load();
@@ -57,6 +73,10 @@ export default function ItemsPage() {
     setEditing(it);
     setForm({
       ...it,
+      categoryId: it.categoryId || "",
+      barcode: it.barcode || "",
+      brand: it.brand || "",
+      wattage: it.wattage || "",
       salePrice: Number(it.salePrice),
       purchasePrice: Number(it.purchasePrice),
       taxRate: Number(it.taxRate),
@@ -72,6 +92,7 @@ export default function ItemsPage() {
     try {
       const body = {
         ...form,
+        categoryId: form.categoryId || null,
         salePrice: Number(form.salePrice),
         purchasePrice: Number(form.purchasePrice),
         taxRate: Number(form.taxRate),
@@ -117,6 +138,7 @@ export default function ItemsPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="table-th">Name</th>
+                <th className="table-th">Category</th>
                 <th className="table-th">Unit</th>
                 <th className="table-th text-right">Sale Price</th>
                 <th className="table-th text-right">Tax %</th>
@@ -130,7 +152,11 @@ export default function ItemsPage() {
                   !it.isService && Number(it.stockQty) <= Number(it.lowStockAlert);
                 return (
                   <tr key={it.id}>
-                    <td className="table-td font-medium">{it.name}</td>
+                    <td className="table-td font-medium">
+                      {it.name}
+                      {it.brand ? <span className="ml-1 text-xs text-gray-400">{it.brand}</span> : null}
+                    </td>
+                    <td className="table-td text-gray-500">{it.category?.name || "—"}</td>
                     <td className="table-td">{it.isService ? "Service" : it.unit}</td>
                     <td className="table-td text-right">{formatMoney(it.salePrice)}</td>
                     <td className="table-td text-right">{Number(it.taxRate)}%</td>
@@ -162,8 +188,8 @@ export default function ItemsPage() {
               })}
               {items.length === 0 && (
                 <tr>
-                  <td className="table-td text-gray-400" colSpan={6}>
-                    No items yet.
+                  <td className="table-td text-gray-400" colSpan={7}>
+                    No products yet.
                   </td>
                 </tr>
               )}
@@ -175,14 +201,46 @@ export default function ItemsPage() {
       {open && (
         <Modal title={editing ? "Edit Item" : "Add Item"} onClose={() => setOpen(false)}>
           <form onSubmit={save} className="space-y-4">
-            <div>
-              <label className="label">Name</label>
-              <input className="input" value={form.name} onChange={set("name")} required />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Name</label>
+                <input className="input" value={form.name} onChange={set("name")} required />
+              </div>
+              <div>
+                <label className="label">Category</label>
+                <select className="input" value={form.categoryId} onChange={set("categoryId")}>
+                  <option value="">— None —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
+                <label className="label">Brand</label>
+                <input className="input" value={form.brand} onChange={set("brand")} />
+              </div>
+              <div>
+                <label className="label">Wattage / Model</label>
+                <input
+                  className="input"
+                  value={form.wattage}
+                  onChange={set("wattage")}
+                  placeholder="e.g. 9W"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
                 <label className="label">SKU</label>
                 <input className="input" value={form.sku} onChange={set("sku")} />
+              </div>
+              <div>
+                <label className="label">Barcode</label>
+                <input className="input" value={form.barcode} onChange={set("barcode")} />
               </div>
               <div>
                 <label className="label">HSN</label>
