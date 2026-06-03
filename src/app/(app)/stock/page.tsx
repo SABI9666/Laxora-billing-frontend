@@ -6,7 +6,14 @@ import { formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
-type Item = { id: string; name: string; sku?: string | null; unit: string; stockQty: string };
+type Item = {
+  id: string;
+  name: string;
+  sku?: string | null;
+  barcode?: string | null;
+  unit: string;
+  stockQty: string;
+};
 type Movement = {
   id: string;
   type: string;
@@ -47,6 +54,41 @@ export default function StockPage() {
 
   const [adjust, setAdjust] = useState({ itemId: "", type: "IN", quantity: 0, reason: "" });
   const [transfer, setTransfer] = useState({ itemId: "", toBusinessId: "", quantity: 0, reason: "" });
+  const [scan, setScan] = useState("");
+  const [scanMsg, setScanMsg] = useState("");
+
+  // Find a product by scanned/typed barcode (or SKU) and select it.
+  async function lookupBarcode(code: string) {
+    const term = code.trim();
+    if (!term) return;
+    setScanMsg("");
+    // Try locally first (fast for the barcode scanner).
+    const local = items.find((i) => i.barcode === term || i.sku === term);
+    if (local) {
+      setAdjust((a) => ({ ...a, itemId: local.id }));
+      setScanMsg(`✓ ${local.name}`);
+      setScan("");
+      return;
+    }
+    try {
+      const r = await api<{ item: Item }>(
+        `/api/items/lookup?barcode=${encodeURIComponent(term)}`
+      );
+      setAdjust((a) => ({ ...a, itemId: r.item.id }));
+      setScanMsg(`✓ ${r.item.name}`);
+      setScan("");
+    } catch {
+      setScanMsg("✗ No product matches that barcode");
+    }
+  }
+
+  function openAdjust() {
+    setAdjust({ itemId: "", type: "IN", quantity: 0, reason: "" });
+    setScan("");
+    setScanMsg("");
+    setError("");
+    setAdjustOpen(true);
+  }
 
   async function load() {
     const [m, l, it] = await Promise.all([
@@ -110,7 +152,7 @@ export default function StockPage() {
             <button className="btn-secondary" onClick={() => setTransferOpen(true)}>
               ⇄ Transfer
             </button>
-            <button className="btn-primary" onClick={() => setAdjustOpen(true)}>
+            <button className="btn-primary" onClick={openAdjust}>
               + Stock In / Adjust
             </button>
           </div>
@@ -228,6 +270,39 @@ export default function StockPage() {
       {adjustOpen && (
         <Modal title="Stock In / Adjust" onClose={() => setAdjustOpen(false)}>
           <form onSubmit={submitAdjust} className="space-y-4">
+            {/* Option 1: scan a barcode to pick the product instantly */}
+            <div>
+              <label className="label">📷 Scan barcode</label>
+              <input
+                className="input"
+                placeholder="Scan or type barcode, then press Enter"
+                value={scan}
+                onChange={(e) => setScan(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    lookupBarcode(scan);
+                  }
+                }}
+                autoFocus
+              />
+              {scanMsg && (
+                <p
+                  className={`mt-1 text-sm ${
+                    scanMsg.startsWith("✓") ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {scanMsg}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              <span className="h-px flex-1 bg-gray-200" /> OR SELECT MANUALLY{" "}
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            {/* Option 2: choose the product manually from the list */}
             <div>
               <label className="label">Product</label>
               <select
