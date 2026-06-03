@@ -51,17 +51,26 @@ export default function LoginPage() {
             </div>
           )}
           <div>
-            <label className="label">Email</label>
+            <label className="label">Username or Email</label>
             <input
-              type="email"
+              type="text"
               className="input"
+              placeholder="e.g. laxoraperavoor"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
             />
           </div>
           <div>
-            <label className="label">Password</label>
+            <div className="flex items-center justify-between">
+              <label className="label">Password</label>
+              <a
+                href="mailto:pradeeksha798@gmail.com?subject=Password%20reset%20request&body=Please%20reset%20the%20password%20for%20my%20shop%20login.%20Username:%20"
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                Forgot password?
+              </a>
+            </div>
             <input
               type="password"
               className="input"
