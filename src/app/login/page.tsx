@@ -64,12 +64,12 @@ export default function LoginPage() {
           <div>
             <div className="flex items-center justify-between">
               <label className="label">Password</label>
-              <a
-                href="mailto:pradeeksha798@gmail.com?subject=Password%20reset%20request&body=Please%20reset%20the%20password%20for%20my%20shop%20login.%20Username:%20"
+              <Link
+                href="/forgot"
                 className="text-xs font-medium text-brand hover:underline"
               >
                 Forgot password?
-              </a>
+              </Link>
             </div>
             <input
               type="password"
