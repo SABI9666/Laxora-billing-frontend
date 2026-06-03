@@ -43,7 +43,26 @@ export default function ShopSwitcher() {
     window.location.reload();
   }
 
-  if (memberships.length <= 1) return null;
+  if (memberships.length === 0) return null;
+
+  const activeShop = memberships.find((m) => m.business.id === active)?.business;
+
+  // Single-shop login: just show the shop name (no dropdown needed).
+  if (memberships.length === 1) {
+    return (
+      <div className="px-3 pb-3">
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-400">
+          Shop
+        </label>
+        <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-sm font-semibold text-gray-800">
+          {activeShop?.name ?? "—"}
+          {activeShop?.code ? (
+            <span className="ml-1 font-normal text-gray-400">({activeShop.code})</span>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-3 pb-3">
