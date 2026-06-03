@@ -14,7 +14,6 @@ const nav = [
   { href: "/stock", label: "Stock", icon: "📦" },
   { href: "/parties", label: "Customers & Suppliers", icon: "👥" },
   { href: "/payments", label: "Payments", icon: "💰" },
-  { href: "/franchise", label: "Franchise", icon: "🏢" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
