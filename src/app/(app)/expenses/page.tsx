@@ -39,12 +39,19 @@ export default function ExpensesPage() {
   });
 
   async function load() {
-    const [e, inv] = await Promise.all([
-      api<{ expenses: Expense[] }>("/api/expenses"),
-      api<{ invoices: Invoice[] }>("/api/invoices?type=SALE"),
-    ]);
-    setExpenses(e.expenses);
-    setInvoices(inv.invoices);
+    // Load independently so a failure in one doesn't blank the other.
+    try {
+      const e = await api<{ expenses: Expense[] }>("/api/expenses");
+      setExpenses(e.expenses);
+    } catch {
+      /* expenses endpoint may not be deployed yet */
+    }
+    try {
+      const inv = await api<{ invoices: Invoice[] }>("/api/invoices?type=SALE");
+      setInvoices(inv.invoices);
+    } catch {
+      /* ignore */
+    }
   }
   useEffect(() => {
     load();
