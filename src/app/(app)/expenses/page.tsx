@@ -19,7 +19,6 @@ type Invoice = { id: string; invoiceNumber: string };
 const CATEGORIES = [
   "Commission",
   "Electrician Charge",
-  "Material Return",
   "Damaged Material",
   "Transport",
   "Rent",

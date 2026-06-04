@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
+import Modal from "@/components/Modal";
 
 type Invoice = {
   id: string;
@@ -16,10 +17,24 @@ type Invoice = {
   invoiceDate: string;
   party: { name: string };
 };
+type Line = {
+  id: string;
+  description: string;
+  quantity: string;
+  rate: string;
+};
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [type, setType] = useState<"" | "SALE" | "PURCHASE">("");
+
+  // Return modal state
+  const [returnInv, setReturnInv] = useState<Invoice | null>(null);
+  const [lines, setLines] = useState<Line[]>([]);
+  const [retQty, setRetQty] = useState<Record<string, number>>({});
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   async function load() {
     const q = type ? `?type=${type}` : "";
@@ -34,6 +49,41 @@ export default function InvoicesPage() {
     if (!confirm(`Delete ${inv.invoiceNumber}? Stock will be restored.`)) return;
     await api(`/api/invoices/${inv.id}`, { method: "DELETE" });
     await load();
+  }
+
+  async function openReturn(inv: Invoice) {
+    setError("");
+    setReason("");
+    setRetQty({});
+    setReturnInv(inv);
+    const r = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${inv.id}`);
+    setLines(r.invoice.items.filter((l) => Number(l.quantity) > 0));
+  }
+
+  async function submitReturn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!returnInv) return;
+    const items = Object.entries(retQty)
+      .filter(([, q]) => q > 0)
+      .map(([invoiceItemId, quantity]) => ({ invoiceItemId, quantity }));
+    if (items.length === 0) {
+      setError("Enter a return quantity for at least one item");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/invoices/${returnInv.id}/return`, {
+        method: "POST",
+        body: { items, reason: reason || undefined },
+      });
+      setReturnInv(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to record return");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -93,10 +143,15 @@ export default function InvoicesPage() {
                     {formatMoney(Number(inv.total) - Number(inv.amountPaid))}
                   </td>
                   <td className="table-td text-right">
-                    <button
-                      onClick={() => remove(inv)}
-                      className="text-red-600 hover:underline"
-                    >
+                    {inv.type === "SALE" && (
+                      <button
+                        onClick={() => openReturn(inv)}
+                        className="mr-3 text-brand hover:underline"
+                      >
+                        Return
+                      </button>
+                    )}
+                    <button onClick={() => remove(inv)} className="text-red-600 hover:underline">
                       Delete
                     </button>
                   </td>
@@ -113,6 +168,68 @@ export default function InvoicesPage() {
           </table>
         </div>
       </div>
+
+      {returnInv && (
+        <Modal
+          title={`Return items — ${returnInv.invoiceNumber}`}
+          onClose={() => setReturnInv(null)}
+        >
+          <form onSubmit={submitReturn} className="space-y-4">
+            {error && <div className="text-sm text-red-600">{error}</div>}
+            <p className="text-sm text-gray-500">
+              Enter how many of each item the customer is returning. Stock goes back up and
+              the bill/profit is adjusted automatically.
+            </p>
+            <div className="space-y-2">
+              {lines.map((l) => (
+                <div key={l.id} className="flex items-center gap-2 border-b pb-2">
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">{l.description}</div>
+                    <div className="text-xs text-gray-500">
+                      Sold: {Number(l.quantity)} @ {formatMoney(l.rate)}
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    min={0}
+                    max={Number(l.quantity)}
+                    step="0.001"
+                    placeholder="0"
+                    className="w-20 rounded border border-gray-200 px-2 py-1 text-sm"
+                    value={retQty[l.id] ?? ""}
+                    onChange={(e) =>
+                      setRetQty({
+                        ...retQty,
+                        [l.id]: Math.min(Number(e.target.value), Number(l.quantity)),
+                      })
+                    }
+                  />
+                </div>
+              ))}
+              {lines.length === 0 && (
+                <p className="text-sm text-gray-400">No returnable items on this bill.</p>
+              )}
+            </div>
+            <div>
+              <label className="label">Reason (optional)</label>
+              <input
+                className="input"
+                placeholder="e.g. damaged / wrong item"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" className="btn-secondary" onClick={() => setReturnInv(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving ? "Processing…" : "Record Return"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
