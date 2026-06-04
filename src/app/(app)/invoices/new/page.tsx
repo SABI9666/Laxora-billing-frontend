@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
+import Modal from "@/components/Modal";
 
 type Party = { id: string; name: string };
 type Item = { id: string; name: string; salePrice: string; purchasePrice: string; taxRate: string };
@@ -31,6 +32,36 @@ export default function NewInvoicePage() {
   const [lines, setLines] = useState<Line[]>([{ ...blankLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Quick-add customer
+  const [showNewParty, setShowNewParty] = useState(false);
+  const [newParty, setNewParty] = useState({ name: "", phone: "", email: "" });
+  const [savingParty, setSavingParty] = useState(false);
+
+  async function createParty(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingParty(true);
+    try {
+      const r = await api<{ party: Party }>("/api/parties", {
+        method: "POST",
+        body: {
+          name: newParty.name.trim(),
+          phone: newParty.phone || undefined,
+          email: newParty.email || undefined,
+          type: "CUSTOMER",
+        },
+      });
+      // Add to the list and select it immediately.
+      setParties((prev) => [...prev, r.party]);
+      setPartyId(r.party.id);
+      setShowNewParty(false);
+      setNewParty({ name: "", phone: "", email: "" });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to add customer");
+    } finally {
+      setSavingParty(false);
+    }
+  }
 
   useEffect(() => {
     api<{ parties: Party[] }>("/api/parties").then((r) => setParties(r.parties));
@@ -117,7 +148,16 @@ export default function NewInvoicePage() {
             </select>
           </div>
           <div className="md:col-span-2">
-            <label className="label">Party</label>
+            <div className="flex items-center justify-between">
+              <label className="label">Party</label>
+              <button
+                type="button"
+                onClick={() => setShowNewParty(true)}
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                + New customer
+              </button>
+            </div>
             <select
               className="input"
               value={partyId}
@@ -284,6 +324,57 @@ export default function NewInvoicePage() {
           </button>
         </div>
       </form>
+
+      {showNewParty && (
+        <Modal title="Add New Customer" onClose={() => setShowNewParty(false)}>
+          <form onSubmit={createParty} className="space-y-4">
+            <p className="text-sm text-gray-500">
+              Quickly add a customer — they're saved to your customer list automatically and
+              will appear next time.
+            </p>
+            <div>
+              <label className="label">Customer name</label>
+              <input
+                className="input"
+                value={newParty.name}
+                onChange={(e) => setNewParty({ ...newParty, name: e.target.value })}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Phone</label>
+                <input
+                  className="input"
+                  value={newParty.phone}
+                  onChange={(e) => setNewParty({ ...newParty, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Email (optional)</label>
+                <input
+                  className="input"
+                  value={newParty.email}
+                  onChange={(e) => setNewParty({ ...newParty, email: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowNewParty(false)}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary" disabled={savingParty}>
+                {savingParty ? "Saving…" : "Add & Select"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
