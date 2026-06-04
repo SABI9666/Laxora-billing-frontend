@@ -70,13 +70,29 @@ export default function PosPage() {
     });
   }, []);
 
+  // On-hand stock for an item; null = service (no limit).
+  function stockOf(itemId: string): number | null {
+    const it = items.find((x) => x.id === itemId);
+    if (!it || it.isService) return null;
+    return Number(it.stockQty);
+  }
+
   function addItem(it: Item) {
+    const max = it.isService ? null : Number(it.stockQty);
+    setError("");
     setLines((prev) => {
       const existing = prev.find((l) => l.itemId === it.id);
       if (existing) {
-        return prev.map((l) =>
-          l.itemId === it.id ? { ...l, quantity: l.quantity + 1 } : l
-        );
+        const next = existing.quantity + 1;
+        if (max !== null && next > max) {
+          setError(`Only ${max} of "${it.name}" in stock`);
+          return prev;
+        }
+        return prev.map((l) => (l.itemId === it.id ? { ...l, quantity: next } : l));
+      }
+      if (max !== null && max < 1) {
+        setError(`"${it.name}" is out of stock`);
+        return prev;
       }
       return [
         ...prev,
@@ -116,8 +132,17 @@ export default function PosPage() {
   }
 
   function setQty(itemId: string, qty: number) {
+    const max = stockOf(itemId);
     setLines((prev) =>
-      prev.map((l) => (l.itemId === itemId ? { ...l, quantity: Math.max(1, qty) } : l))
+      prev.map((l) => {
+        if (l.itemId !== itemId) return l;
+        let q = Math.max(1, qty);
+        if (max !== null && q > max) {
+          setError(`Only ${max} in stock`);
+          q = max; // block over-stock
+        }
+        return { ...l, quantity: q };
+      })
     );
   }
   function removeLine(itemId: string) {
@@ -262,6 +287,7 @@ export default function PosPage() {
                 <input
                   type="number"
                   min={1}
+                  max={stockOf(l.itemId) ?? undefined}
                   className="w-14 rounded border border-gray-200 px-2 py-1 text-sm"
                   value={l.quantity}
                   onChange={(e) => setQty(l.itemId, Number(e.target.value))}

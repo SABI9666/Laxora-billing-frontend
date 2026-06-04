@@ -8,7 +8,15 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
 type Party = { id: string; name: string };
-type Item = { id: string; name: string; salePrice: string; purchasePrice: string; taxRate: string };
+type Item = {
+  id: string;
+  name: string;
+  salePrice: string;
+  purchasePrice: string;
+  taxRate: string;
+  stockQty: string;
+  isService: boolean;
+};
 type Line = {
   itemId: string;
   description: string;
@@ -87,6 +95,15 @@ export default function NewInvoicePage() {
     });
   }
 
+  // Available stock for a SALE line: null = no limit (purchase / service /
+  // custom free-text line). Otherwise the on-hand quantity.
+  function stockFor(itemId: string): number | null {
+    if (type !== "SALE" || !itemId) return null;
+    const it = items.find((x) => x.id === itemId);
+    if (!it || it.isService) return null;
+    return Number(it.stockQty);
+  }
+
   const subtotal = round2(lines.reduce((s, l) => s + l.quantity * l.rate, 0));
   const taxAmount = round2(
     lines.reduce((s, l) => s + (l.quantity * l.rate * l.taxRate) / 100, 0)
@@ -99,6 +116,14 @@ export default function NewInvoicePage() {
     if (!partyId) return setError("Please select a party.");
     const validLines = lines.filter((l) => l.description && l.quantity > 0);
     if (validLines.length === 0) return setError("Add at least one line item.");
+
+    // Block selling more than what's in stock.
+    for (const l of validLines) {
+      const max = stockFor(l.itemId);
+      if (max !== null && l.quantity > max) {
+        return setError(`Not enough stock for "${l.description}" — only ${max} available.`);
+      }
+    }
 
     setSaving(true);
     try {
@@ -223,10 +248,28 @@ export default function NewInvoicePage() {
                       <input
                         type="number"
                         step="0.001"
+                        min={0}
+                        max={stockFor(l.itemId) ?? undefined}
                         className="input w-24 text-right"
                         value={l.quantity}
-                        onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
+                        onChange={(e) => {
+                          const max = stockFor(l.itemId);
+                          let q = Number(e.target.value);
+                          if (max !== null && q > max) q = max; // block over-stock
+                          updateLine(i, { quantity: q });
+                        }}
                       />
+                      {stockFor(l.itemId) !== null && (
+                        <div
+                          className={`mt-1 text-right text-xs ${
+                            l.quantity >= (stockFor(l.itemId) as number)
+                              ? "text-red-600"
+                              : "text-gray-400"
+                          }`}
+                        >
+                          {stockFor(l.itemId)} in stock
+                        </div>
+                      )}
                     </td>
                     <td className="table-td">
                       <input
