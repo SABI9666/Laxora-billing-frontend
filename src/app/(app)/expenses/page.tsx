@@ -15,10 +15,13 @@ type Expense = {
   date: string;
 };
 type Invoice = { id: string; invoiceNumber: string };
+type BillItem = { id: string; description: string; quantity: string; rate: string };
 
+const RETURN = "Return Material";
 const CATEGORIES = [
   "Commission",
   "Electrician Charge",
+  RETURN,
   "Damaged Material",
   "Transport",
   "Rent",
@@ -31,6 +34,7 @@ export default function ExpensesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     category: "Commission",
     amount: 0,
@@ -38,8 +42,13 @@ export default function ExpensesPage() {
     invoiceId: "",
   });
 
+  // Return-mode state: the selected bill's items + how many to return.
+  const [billItems, setBillItems] = useState<BillItem[]>([]);
+  const [retQty, setRetQty] = useState<Record<string, number>>({});
+
+  const isReturn = form.category === RETURN;
+
   async function load() {
-    // Load independently so a failure in one doesn't blank the other.
     try {
       const e = await api<{ expenses: Expense[] }>("/api/expenses");
       setExpenses(e.expenses);
@@ -57,8 +66,22 @@ export default function ExpensesPage() {
     load();
   }, []);
 
+  // When in return mode and a bill is chosen, load that bill's items.
+  useEffect(() => {
+    if (!isReturn || !form.invoiceId) {
+      setBillItems([]);
+      setRetQty({});
+      return;
+    }
+    api<{ invoice: { items: BillItem[] } }>(`/api/invoices/${form.invoiceId}`).then((r) =>
+      setBillItems(r.invoice.items.filter((l) => Number(l.quantity) > 0))
+    );
+  }, [isReturn, form.invoiceId]);
+
   function openNew() {
     setForm({ category: "Commission", amount: 0, note: "", invoiceId: "" });
+    setBillItems([]);
+    setRetQty({});
     setError("");
     setOpen(true);
   }
@@ -66,20 +89,38 @@ export default function ExpensesPage() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setSaving(true);
     try {
-      await api("/api/expenses", {
-        method: "POST",
-        body: {
-          category: form.category,
-          amount: Number(form.amount),
-          note: form.note || undefined,
-          invoiceId: form.invoiceId || undefined,
-        },
-      });
+      if (isReturn) {
+        // Process a sales return: stock back up + bill/profit adjusted.
+        if (!form.invoiceId) throw new Error("Select the bill the material is returned from");
+        const items = Object.entries(retQty)
+          .filter(([, q]) => q > 0)
+          .map(([invoiceItemId, quantity]) => ({ invoiceItemId, quantity }));
+        if (items.length === 0) throw new Error("Enter a return quantity for at least one item");
+        await api(`/api/invoices/${form.invoiceId}/return`, {
+          method: "POST",
+          body: { items, reason: form.note || undefined },
+        });
+      } else {
+        await api("/api/expenses", {
+          method: "POST",
+          body: {
+            category: form.category,
+            amount: Number(form.amount),
+            note: form.note || undefined,
+            invoiceId: form.invoiceId || undefined,
+          },
+        });
+      }
       setOpen(false);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to save");
+      setError(
+        err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Failed to save"
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -105,8 +146,9 @@ export default function ExpensesPage() {
       />
 
       <p className="mb-4 text-sm text-gray-500">
-        Record costs like electrician commission, damaged/returned material, transport,
-        etc. These are subtracted in the Profit &amp; Loss report for true profit.
+        Record costs like electrician commission, damaged material, transport, etc. Choosing{" "}
+        <b>Return Material</b> puts items back in stock and adjusts the bill. All of these are
+        reflected in the Profit &amp; Loss report.
       </p>
 
       <div className="mb-4 inline-block rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
@@ -171,26 +213,19 @@ export default function ExpensesPage() {
                 ))}
               </select>
             </div>
+
+            {/* Related bill: required for returns, optional otherwise */}
             <div>
-              <label className="label">Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                className="input"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
-                required
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="label">Related bill (optional)</label>
+              <label className="label">
+                {isReturn ? "Bill the material is returned from" : "Related bill (optional)"}
+              </label>
               <select
                 className="input"
                 value={form.invoiceId}
                 onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+                required={isReturn}
               >
-                <option value="">— Not linked to a bill —</option>
+                <option value="">{isReturn ? "Select bill…" : "— Not linked to a bill —"}</option>
                 {invoices.map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.invoiceNumber}
@@ -198,11 +233,62 @@ export default function ExpensesPage() {
                 ))}
               </select>
             </div>
+
+            {isReturn ? (
+              /* Return mode: pick which items + how many are returned */
+              <div>
+                <label className="label">Returned items (stock will go back up)</label>
+                {!form.invoiceId && (
+                  <p className="text-sm text-gray-400">Select a bill above to load its items.</p>
+                )}
+                <div className="space-y-2">
+                  {billItems.map((l) => (
+                    <div key={l.id} className="flex items-center gap-2 border-b pb-2">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">{l.description}</div>
+                        <div className="text-xs text-gray-500">
+                          Sold: {Number(l.quantity)} @ {formatMoney(l.rate)}
+                        </div>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={Number(l.quantity)}
+                        step="0.001"
+                        placeholder="0"
+                        className="w-20 rounded border border-gray-200 px-2 py-1 text-sm"
+                        value={retQty[l.id] ?? ""}
+                        onChange={(e) =>
+                          setRetQty({
+                            ...retQty,
+                            [l.id]: Math.min(Number(e.target.value), Number(l.quantity)),
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="label">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  value={form.amount}
+                  onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
+                  required
+                  autoFocus
+                />
+              </div>
+            )}
+
             <div>
               <label className="label">Note (optional)</label>
               <input
                 className="input"
-                placeholder="e.g. electrician name / reason"
+                placeholder={isReturn ? "e.g. reason for return" : "e.g. electrician name / reason"}
                 value={form.note}
                 onChange={(e) => setForm({ ...form, note: e.target.value })}
               />
@@ -211,8 +297,8 @@ export default function ExpensesPage() {
               <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
                 Cancel
               </button>
-              <button type="submit" className="btn-primary">
-                Save Charge
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving ? "Saving…" : isReturn ? "Process Return" : "Save Charge"}
               </button>
             </div>
           </form>
