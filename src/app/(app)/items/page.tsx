@@ -7,12 +7,15 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
 type Category = { id: string; name: string };
+type Party = { id: string; name: string; type: string };
 
 type Item = {
   id: string;
   name: string;
   categoryId?: string | null;
   category?: { id: string; name: string } | null;
+  supplierId?: string | null;
+  supplier?: { id: string; name: string } | null;
   sku?: string;
   barcode?: string;
   brand?: string;
@@ -30,6 +33,7 @@ type Item = {
 const empty = {
   name: "",
   categoryId: "",
+  supplierId: "",
   sku: "",
   barcode: "",
   brand: "",
@@ -47,18 +51,21 @@ const empty = {
 export default function ItemsPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [suppliers, setSuppliers] = useState<Party[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [form, setForm] = useState<any>(empty);
   const [saving, setSaving] = useState(false);
 
   async function load() {
-    const [r, c] = await Promise.all([
+    const [r, c, p] = await Promise.all([
       api<{ items: Item[] }>("/api/items"),
       api<{ categories: Category[] }>("/api/categories"),
+      api<{ parties: Party[] }>("/api/parties"),
     ]);
     setItems(r.items);
     setCategories(c.categories);
+    setSuppliers(p.parties.filter((x) => x.type === "SUPPLIER"));
   }
   useEffect(() => {
     load();
@@ -74,6 +81,7 @@ export default function ItemsPage() {
     setForm({
       ...it,
       categoryId: it.categoryId || "",
+      supplierId: it.supplierId || "",
       barcode: it.barcode || "",
       brand: it.brand || "",
       wattage: it.wattage || "",
@@ -93,6 +101,7 @@ export default function ItemsPage() {
       const body = {
         ...form,
         categoryId: form.categoryId || null,
+        supplierId: form.supplierId || null,
         salePrice: Number(form.salePrice),
         purchasePrice: Number(form.purchasePrice),
         taxRate: Number(form.taxRate),
@@ -217,6 +226,22 @@ export default function ItemsPage() {
                   ))}
                 </select>
               </div>
+            </div>
+            <div>
+              <label className="label">Supplier (who you buy this from)</label>
+              <select className="input" value={form.supplierId} onChange={set("supplierId")}>
+                <option value="">— None —</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {suppliers.length === 0 && (
+                <p className="mt-1 text-xs text-gray-400">
+                  Add suppliers in Customers &amp; Suppliers (type Supplier) to link them here.
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
