@@ -56,6 +56,7 @@ export default function ItemsPage() {
   const [editing, setEditing] = useState<Item | null>(null);
   const [form, setForm] = useState<any>(empty);
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
 
   async function load() {
     const [r, c, p] = await Promise.all([
@@ -110,7 +111,13 @@ export default function ItemsPage() {
         isService: !!form.isService,
       };
       if (editing) {
-        await api(`/api/items/${editing.id}`, { method: "PUT", body });
+        const r = await api<{ pending?: boolean }>(`/api/items/${editing.id}`, {
+          method: "PUT",
+          body,
+        });
+        if (r?.pending) {
+          setNotice("✅ Your change was sent to the admin for approval. It will update once approved.");
+        }
       } else {
         await api("/api/items", { method: "POST", body });
       }
@@ -140,6 +147,15 @@ export default function ItemsPage() {
           </button>
         }
       />
+
+      {notice && (
+        <div className="mb-4 flex items-center justify-between rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span>{notice}</span>
+          <button onClick={() => setNotice("")} className="text-amber-600 hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="card p-0">
         <div className="overflow-x-auto">
