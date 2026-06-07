@@ -7,7 +7,7 @@ import { formatMoney } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
-type Party = { id: string; name: string };
+type Party = { id: string; name: string; type: string };
 type Item = {
   id: string;
   name: string;
@@ -41,6 +41,11 @@ export default function NewInvoicePage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Sales list customers; purchases list suppliers.
+  const partyType = type === "SALE" ? "CUSTOMER" : "SUPPLIER";
+  const partyLabel = type === "SALE" ? "customer" : "supplier";
+  const filteredParties = parties.filter((p) => p.type === partyType);
+
   // Quick-add customer
   const [showNewParty, setShowNewParty] = useState(false);
   const [newParty, setNewParty] = useState({ name: "", phone: "", email: "" });
@@ -56,7 +61,7 @@ export default function NewInvoicePage() {
           name: newParty.name.trim(),
           phone: newParty.phone || undefined,
           email: newParty.email || undefined,
-          type: "CUSTOMER",
+          type: partyType,
         },
       });
       // Add to the list and select it immediately.
@@ -166,7 +171,10 @@ export default function NewInvoicePage() {
             <select
               className="input"
               value={type}
-              onChange={(e) => setType(e.target.value as any)}
+              onChange={(e) => {
+                setType(e.target.value as any);
+                setPartyId(""); // clear party — the list changes with type
+              }}
             >
               <option value="SALE">Sale</option>
               <option value="PURCHASE">Purchase</option>
@@ -174,13 +182,13 @@ export default function NewInvoicePage() {
           </div>
           <div className="md:col-span-2">
             <div className="flex items-center justify-between">
-              <label className="label">Party</label>
+              <label className="label">{type === "SALE" ? "Customer" : "Supplier"}</label>
               <button
                 type="button"
                 onClick={() => setShowNewParty(true)}
                 className="text-xs font-medium text-brand hover:underline"
               >
-                + New customer
+                + New {partyLabel}
               </button>
             </div>
             <select
@@ -189,8 +197,8 @@ export default function NewInvoicePage() {
               onChange={(e) => setPartyId(e.target.value)}
               required
             >
-              <option value="">Select party…</option>
-              {parties.map((p) => (
+              <option value="">Select {partyLabel}…</option>
+              {filteredParties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
@@ -369,14 +377,14 @@ export default function NewInvoicePage() {
       </form>
 
       {showNewParty && (
-        <Modal title="Add New Customer" onClose={() => setShowNewParty(false)}>
+        <Modal title={`Add New ${partyLabel}`} onClose={() => setShowNewParty(false)}>
           <form onSubmit={createParty} className="space-y-4">
             <p className="text-sm text-gray-500">
-              Quickly add a customer — they're saved to your customer list automatically and
-              will appear next time.
+              Quickly add a {partyLabel} — saved to your list automatically and selectable next
+              time.
             </p>
             <div>
-              <label className="label">Customer name</label>
+              <label className="label">{type === "SALE" ? "Customer" : "Supplier"} name</label>
               <input
                 className="input"
                 value={newParty.name}
