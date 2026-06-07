@@ -57,6 +57,17 @@ export default function ItemsPage() {
   const [form, setForm] = useState<any>(empty);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+
+  // Live client-side search across name, brand, category, SKU, barcode, wattage.
+  const term = search.trim().toLowerCase();
+  const visibleItems = term
+    ? items.filter((it) =>
+        [it.name, it.brand, it.category?.name, it.sku, it.barcode, it.wattage]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(term))
+      )
+    : items;
 
   async function load() {
     const [r, c, p] = await Promise.all([
@@ -157,6 +168,18 @@ export default function ItemsPage() {
         </div>
       )}
 
+      <div className="mb-4 flex items-center gap-3">
+        <input
+          className="input max-w-md"
+          placeholder="🔍 Search products by name, brand, category, SKU, barcode…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <span className="text-sm text-gray-400">
+          {visibleItems.length} of {items.length}
+        </span>
+      </div>
+
       <div className="card p-0">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -172,7 +195,7 @@ export default function ItemsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {items.map((it) => {
+              {visibleItems.map((it) => {
                 const low =
                   !it.isService && Number(it.stockQty) <= Number(it.lowStockAlert);
                 return (
@@ -211,10 +234,10 @@ export default function ItemsPage() {
                   </tr>
                 );
               })}
-              {items.length === 0 && (
+              {visibleItems.length === 0 && (
                 <tr>
                   <td className="table-td text-gray-400" colSpan={7}>
-                    No products yet.
+                    {items.length === 0 ? "No products yet." : "No products match your search."}
                   </td>
                 </tr>
               )}
