@@ -11,16 +11,32 @@ type Invoice = { id: string; invoiceNumber: string; total: string; amountPaid: s
 type Payment = {
   id: string;
   direction?: "IN" | "OUT";
+  purpose?: string | null;
   amount: string;
   method: string;
   paymentDate: string;
   notes?: string | null;
-  party: { name: string };
+  party?: { name: string } | null;
   invoice?: { invoiceNumber: string } | null;
 };
 
 const METHODS = ["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"];
-const empty = { partyId: "", invoiceId: "", amount: 0, method: "CASH", notes: "" };
+// Payment-voucher (money out) purposes.
+const OUT_PURPOSES = [
+  "Supplier Payment",
+  "Expense",
+  "Bank Deposit",
+  "Bank Withdrawal",
+  "Other",
+];
+const empty = {
+  partyId: "",
+  invoiceId: "",
+  amount: 0,
+  method: "CASH",
+  notes: "",
+  purpose: "Supplier Payment",
+};
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -64,10 +80,15 @@ export default function PaymentsPage() {
 
   function openNew(dir: "IN" | "OUT") {
     setDirection(dir);
-    setForm(empty);
+    setForm({ ...empty, purpose: dir === "IN" ? "Customer Receipt" : "Supplier Payment" });
     setError("");
     setOpen(true);
   }
+
+  // Whether the current voucher needs a party / a linked bill.
+  const isSupplierPay = !isCredit && form.purpose === "Supplier Payment";
+  const needsParty = isCredit || isSupplierPay;
+  const isTransfer = form.purpose === "Bank Deposit" || form.purpose === "Bank Withdrawal";
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -77,11 +98,13 @@ export default function PaymentsPage() {
       await api("/api/payments", {
         method: "POST",
         body: {
-          partyId: form.partyId,
-          invoiceId: form.invoiceId || undefined,
+          partyId: needsParty ? form.partyId : undefined,
+          invoiceId: needsParty ? form.invoiceId || undefined : undefined,
           direction,
+          purpose: form.purpose || undefined,
           amount: Number(form.amount),
-          method: form.method,
+          // Bank deposit/withdrawal are transfers — method is irrelevant.
+          method: isTransfer ? "BANK" : form.method,
           notes: form.notes || undefined,
         },
       });
@@ -167,9 +190,11 @@ export default function PaymentsPage() {
                         {isIn ? "Credit (In)" : "Payment (Out)"}
                       </span>
                     </td>
-                    <td className="table-td font-medium">{p.party?.name}</td>
+                    <td className="table-td font-medium">
+                      {p.party?.name ?? p.purpose ?? "—"}
+                    </td>
                     <td className="table-td text-gray-500">
-                      {p.invoice?.invoiceNumber ?? "—"}
+                      {p.invoice?.invoiceNumber ?? (p.party ? p.purpose ?? "—" : "—")}
                     </td>
                     <td className="table-td">{p.method}</td>
                     <td
@@ -210,41 +235,73 @@ export default function PaymentsPage() {
         >
           <form onSubmit={save} className="space-y-4">
             {error && <div className="text-sm text-red-600">{error}</div>}
-            <div>
-              <label className="label">
-                {isCredit ? "Received from (customer)" : "Paid to (supplier)"}
-              </label>
-              <select
-                className="input"
-                value={form.partyId}
-                onChange={(e) => setForm({ ...form, partyId: e.target.value, invoiceId: "" })}
-                required
-              >
-                <option value="">Select {isCredit ? "customer" : "supplier"}…</option>
-                {partyOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">
-                Against bill (optional — their unpaid {isCredit ? "sales" : "purchase"} bills)
-              </label>
-              <select
-                className="input"
-                value={form.invoiceId}
-                onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
-              >
-                <option value="">— Not linked to a bill —</option>
-                {invoices.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.invoiceNumber} (due {formatMoney(Number(i.total) - Number(i.amountPaid))})
-                  </option>
-                ))}
-              </select>
-            </div>
+
+            {/* Payment vouchers: choose what it's for */}
+            {!isCredit && (
+              <div>
+                <label className="label">Purpose</label>
+                <select
+                  className="input"
+                  value={form.purpose}
+                  onChange={(e) => setForm({ ...form, purpose: e.target.value, partyId: "", invoiceId: "" })}
+                >
+                  {OUT_PURPOSES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+                {isTransfer && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    {form.purpose === "Bank Deposit"
+                      ? "Moves money from shop cash into the bank."
+                      : "Moves money from the bank into shop cash."}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {needsParty && (
+              <div>
+                <label className="label">
+                  {isCredit ? "Received from (customer)" : "Paid to (supplier)"}
+                </label>
+                <select
+                  className="input"
+                  value={form.partyId}
+                  onChange={(e) => setForm({ ...form, partyId: e.target.value, invoiceId: "" })}
+                  required
+                >
+                  <option value="">Select {isCredit ? "customer" : "supplier"}…</option>
+                  {partyOptions.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {needsParty && (
+              <div>
+                <label className="label">
+                  Against bill (optional — their unpaid {isCredit ? "sales" : "purchase"} bills)
+                </label>
+                <select
+                  className="input"
+                  value={form.invoiceId}
+                  onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+                >
+                  <option value="">— Not linked to a bill —</option>
+                  {invoices.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.invoiceNumber} (due {formatMoney(Number(i.total) - Number(i.amountPaid))})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Amount</label>
@@ -255,22 +312,25 @@ export default function PaymentsPage() {
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
                   required
+                  autoFocus
                 />
               </div>
-              <div>
-                <label className="label">Cash or Bank</label>
-                <select
-                  className="input"
-                  value={form.method}
-                  onChange={(e) => setForm({ ...form, method: e.target.value })}
-                >
-                  {METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!isTransfer && (
+                <div>
+                  <label className="label">Cash or Bank</label>
+                  <select
+                    className="input"
+                    value={form.method}
+                    onChange={(e) => setForm({ ...form, method: e.target.value })}
+                  >
+                    {METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
             <div>
               <label className="label">Note (optional)</label>
