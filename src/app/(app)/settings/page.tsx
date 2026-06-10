@@ -12,6 +12,8 @@ type Business = {
   email?: string;
   address?: string;
   logoUrl?: string;
+  openingCash?: string;
+  openingBank?: string;
 };
 
 export default function SettingsPage() {
@@ -28,6 +30,8 @@ export default function SettingsPage() {
         email: r.business.email || "",
         address: r.business.address || "",
         logoUrl: r.business.logoUrl || "",
+        openingCash: Number(r.business.openingCash ?? 0),
+        openingBank: Number(r.business.openingBank ?? 0),
       })
     );
   }, []);
@@ -41,7 +45,14 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api("/api/business", { method: "PUT", body: form });
+      await api("/api/business", {
+        method: "PUT",
+        body: {
+          ...form,
+          openingCash: Number(form.openingCash) || 0,
+          openingBank: Number(form.openingBank) || 0,
+        },
+      });
       setSaved(true);
     } finally {
       setSaving(false);
@@ -84,6 +95,35 @@ export default function SettingsPage() {
         <div>
           <label className="label">Logo URL</label>
           <input className="input" value={form.logoUrl} onChange={set("logoUrl")} />
+        </div>
+        <div className="rounded-lg border border-gray-200 p-4">
+          <p className="mb-1 text-sm font-semibold">Opening balances (cash book starting point)</p>
+          <p className="mb-3 text-xs text-gray-400">
+            Enter the cash in the shop and the money in the bank when you start using Laxora.
+            The daily cash book builds on these.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Opening cash in shop</label>
+              <input
+                type="number"
+                step="0.01"
+                className="input"
+                value={form.openingCash}
+                onChange={set("openingCash")}
+              />
+            </div>
+            <div>
+              <label className="label">Opening bank balance</label>
+              <input
+                type="number"
+                step="0.01"
+                className="input"
+                value={form.openingBank}
+                onChange={set("openingBank")}
+              />
+            </div>
+          </div>
         </div>
         <div className="flex justify-end">
           <button type="submit" className="btn-primary" disabled={saving}>

@@ -1,21 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
-type Party = { id: string; name: string };
+type Party = { id: string; name: string; type: string };
 type Invoice = { id: string; invoiceNumber: string; total: string; amountPaid: string };
 type Payment = {
   id: string;
+  direction?: "IN" | "OUT";
   amount: string;
   method: string;
   paymentDate: string;
+  notes?: string | null;
   party: { name: string };
+  invoice?: { invoiceNumber: string } | null;
 };
 
+const METHODS = ["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"];
 const empty = { partyId: "", invoiceId: "", amount: 0, method: "CASH", notes: "" };
 
 export default function PaymentsPage() {
@@ -23,8 +27,17 @@ export default function PaymentsPage() {
   const [parties, setParties] = useState<Party[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [open, setOpen] = useState(false);
+  // IN = credit voucher (money received), OUT = payment voucher (money given).
+  const [direction, setDirection] = useState<"IN" | "OUT">("IN");
   const [form, setForm] = useState<any>(empty);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const isCredit = direction === "IN";
+  // Credit vouchers come from customers; payment vouchers go to suppliers.
+  const partyOptions = parties.filter((p) =>
+    isCredit ? p.type === "CUSTOMER" : p.type === "SUPPLIER"
+  );
 
   async function load() {
     const r = await api<{ payments: Payment[] }>("/api/payments");
@@ -35,33 +48,38 @@ export default function PaymentsPage() {
     api<{ parties: Party[] }>("/api/parties").then((r) => setParties(r.parties));
   }, []);
 
-  // Load unpaid invoices for the selected party when recording a payment.
+  // Load that party's unpaid bills (sales for credit, purchases for payment).
   useEffect(() => {
     if (!form.partyId) {
       setInvoices([]);
       return;
     }
+    const invType = isCredit ? "SALE" : "PURCHASE";
     api<{ invoices: Invoice[] }>(
-      `/api/invoices?type=SALE&partyId=${form.partyId}`
+      `/api/invoices?type=${invType}&partyId=${form.partyId}`
     ).then((r) =>
       setInvoices(r.invoices.filter((i) => Number(i.total) > Number(i.amountPaid)))
     );
-  }, [form.partyId]);
+  }, [form.partyId, isCredit]);
 
-  function openNew() {
+  function openNew(dir: "IN" | "OUT") {
+    setDirection(dir);
     setForm(empty);
+    setError("");
     setOpen(true);
   }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setError("");
     try {
       await api("/api/payments", {
         method: "POST",
         body: {
           partyId: form.partyId,
           invoiceId: form.invoiceId || undefined,
+          direction,
           amount: Number(form.amount),
           method: form.method,
           notes: form.notes || undefined,
@@ -69,30 +87,56 @@ export default function PaymentsPage() {
       });
       setOpen(false);
       await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to save voucher");
     } finally {
       setSaving(false);
     }
   }
 
   async function remove(p: Payment) {
-    if (!confirm("Delete this payment?")) return;
+    if (!confirm("Delete this voucher?")) return;
     await api(`/api/payments/${p.id}`, { method: "DELETE" });
     await load();
   }
 
-  const set = (k: string) => (e: React.ChangeEvent<any>) =>
-    setForm({ ...form, [k]: e.target.value });
+  const totalIn = payments
+    .filter((p) => (p.direction ?? "IN") === "IN")
+    .reduce((s, p) => s + Number(p.amount), 0);
+  const totalOut = payments
+    .filter((p) => p.direction === "OUT")
+    .reduce((s, p) => s + Number(p.amount), 0);
 
   return (
     <div>
       <PageHeader
-        title="Payments"
+        title="Payments & Vouchers"
         action={
-          <button onClick={openNew} className="btn-primary">
-            + Record Payment
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => openNew("OUT")} className="btn-secondary">
+              − Payment Voucher
+            </button>
+            <button onClick={() => openNew("IN")} className="btn-primary">
+              + Credit Voucher
+            </button>
+          </div>
         }
       />
+
+      <p className="mb-4 text-sm text-gray-500">
+        <b>Credit voucher</b> = money received (from a customer, cash or bank).{" "}
+        <b>Payment voucher</b> = money given (to a supplier). Both update the cash book and
+        the linked bill automatically.
+      </p>
+
+      <div className="mb-4 flex flex-wrap gap-3">
+        <span className="rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
+          Money in: <b>{formatMoney(totalIn)}</b>
+        </span>
+        <span className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+          Money out: <b>{formatMoney(totalOut)}</b>
+        </span>
+      </div>
 
       <div className="card p-0">
         <div className="overflow-x-auto">
@@ -100,33 +144,57 @@ export default function PaymentsPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="table-th">Date</th>
+                <th className="table-th">Type</th>
                 <th className="table-th">Party</th>
-                <th className="table-th">Method</th>
+                <th className="table-th">Bill</th>
+                <th className="table-th">Mode</th>
                 <th className="table-th text-right">Amount</th>
                 <th className="table-th"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {payments.map((p) => (
-                <tr key={p.id}>
-                  <td className="table-td">{formatDate(p.paymentDate)}</td>
-                  <td className="table-td font-medium">{p.party?.name}</td>
-                  <td className="table-td">{p.method}</td>
-                  <td className="table-td text-right">{formatMoney(p.amount)}</td>
-                  <td className="table-td text-right">
-                    <button
-                      onClick={() => remove(p)}
-                      className="text-red-600 hover:underline"
+              {payments.map((p) => {
+                const isIn = (p.direction ?? "IN") === "IN";
+                return (
+                  <tr key={p.id}>
+                    <td className="table-td">{formatDate(p.paymentDate)}</td>
+                    <td className="table-td">
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs font-medium ${
+                          isIn ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {isIn ? "Credit (In)" : "Payment (Out)"}
+                      </span>
+                    </td>
+                    <td className="table-td font-medium">{p.party?.name}</td>
+                    <td className="table-td text-gray-500">
+                      {p.invoice?.invoiceNumber ?? "—"}
+                    </td>
+                    <td className="table-td">{p.method}</td>
+                    <td
+                      className={`table-td text-right font-semibold ${
+                        isIn ? "text-green-700" : "text-red-600"
+                      }`}
                     >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {isIn ? "+" : "−"}
+                      {formatMoney(p.amount)}
+                    </td>
+                    <td className="table-td text-right">
+                      <button
+                        onClick={() => remove(p)}
+                        className="text-red-600 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {payments.length === 0 && (
                 <tr>
-                  <td className="table-td text-gray-400" colSpan={5}>
-                    No payments yet.
+                  <td className="table-td text-gray-400" colSpan={7}>
+                    No vouchers yet.
                   </td>
                 </tr>
               )}
@@ -136,13 +204,24 @@ export default function PaymentsPage() {
       </div>
 
       {open && (
-        <Modal title="Record Payment" onClose={() => setOpen(false)}>
+        <Modal
+          title={isCredit ? "Credit Voucher — Money Received" : "Payment Voucher — Money Given"}
+          onClose={() => setOpen(false)}
+        >
           <form onSubmit={save} className="space-y-4">
+            {error && <div className="text-sm text-red-600">{error}</div>}
             <div>
-              <label className="label">Party</label>
-              <select className="input" value={form.partyId} onChange={set("partyId")} required>
-                <option value="">Select party…</option>
-                {parties.map((p) => (
+              <label className="label">
+                {isCredit ? "Received from (customer)" : "Paid to (supplier)"}
+              </label>
+              <select
+                className="input"
+                value={form.partyId}
+                onChange={(e) => setForm({ ...form, partyId: e.target.value, invoiceId: "" })}
+                required
+              >
+                <option value="">Select {isCredit ? "customer" : "supplier"}…</option>
+                {partyOptions.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -150,12 +229,18 @@ export default function PaymentsPage() {
               </select>
             </div>
             <div>
-              <label className="label">Against Invoice (optional)</label>
-              <select className="input" value={form.invoiceId} onChange={set("invoiceId")}>
-                <option value="">On account (no specific invoice)</option>
+              <label className="label">
+                Against bill (optional — their unpaid {isCredit ? "sales" : "purchase"} bills)
+              </label>
+              <select
+                className="input"
+                value={form.invoiceId}
+                onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+              >
+                <option value="">— Not linked to a bill —</option>
                 {invoices.map((i) => (
                   <option key={i.id} value={i.id}>
-                    {i.invoiceNumber} — due {formatMoney(Number(i.total) - Number(i.amountPaid))}
+                    {i.invoiceNumber} (due {formatMoney(Number(i.total) - Number(i.amountPaid))})
                   </option>
                 ))}
               </select>
@@ -168,14 +253,18 @@ export default function PaymentsPage() {
                   step="0.01"
                   className="input"
                   value={form.amount}
-                  onChange={set("amount")}
+                  onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
                   required
                 />
               </div>
               <div>
-                <label className="label">Method</label>
-                <select className="input" value={form.method} onChange={set("method")}>
-                  {["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"].map((m) => (
+                <label className="label">Cash or Bank</label>
+                <select
+                  className="input"
+                  value={form.method}
+                  onChange={(e) => setForm({ ...form, method: e.target.value })}
+                >
+                  {METHODS.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
@@ -184,15 +273,20 @@ export default function PaymentsPage() {
               </div>
             </div>
             <div>
-              <label className="label">Notes</label>
-              <input className="input" value={form.notes} onChange={set("notes")} />
+              <label className="label">Note (optional)</label>
+              <input
+                className="input"
+                placeholder="e.g. reference / remarks"
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
             </div>
             <div className="flex justify-end gap-3">
               <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
                 Cancel
               </button>
               <button type="submit" className="btn-primary" disabled={saving}>
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Saving…" : isCredit ? "Save Credit Voucher" : "Save Payment Voucher"}
               </button>
             </div>
           </form>
