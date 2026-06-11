@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
@@ -114,6 +115,12 @@ export default function PartiesPage() {
                     {formatMoney(p.openingBalance)}
                   </td>
                   <td className="table-td text-right">
+                    <Link
+                      href={`/parties/${p.id}/ledger`}
+                      className="mr-3 text-brand hover:underline"
+                    >
+                      Ledger
+                    </Link>
                     <button
                       onClick={() => openEdit(p)}
                       className="mr-3 text-brand hover:underline"
