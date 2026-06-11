@@ -34,6 +34,7 @@ export default function InvoicesPage() {
   const [retQty, setRetQty] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -46,8 +47,19 @@ export default function InvoicesPage() {
   }, [type]);
 
   async function remove(inv: Invoice) {
-    if (!confirm(`Delete ${inv.invoiceNumber}? Stock will be restored.`)) return;
-    await api(`/api/invoices/${inv.id}`, { method: "DELETE" });
+    if (
+      !confirm(
+        `Delete ${inv.invoiceNumber}? This will be sent to the admin for approval.`
+      )
+    )
+      return;
+    const r = await api<{ pending?: boolean; message?: string } | undefined>(
+      `/api/invoices/${inv.id}`,
+      { method: "DELETE" }
+    );
+    if (r?.pending) {
+      setNotice(r.message ?? "Deletion sent to the admin for approval.");
+    }
     await load();
   }
 
@@ -96,6 +108,15 @@ export default function InvoicesPage() {
           </Link>
         }
       />
+
+      {notice && (
+        <div className="mb-4 flex items-center justify-between rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span>{notice}</span>
+          <button onClick={() => setNotice("")} className="text-amber-600 hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="mb-4 flex gap-2">
         {[
