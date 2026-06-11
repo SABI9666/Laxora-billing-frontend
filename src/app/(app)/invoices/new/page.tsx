@@ -40,6 +40,10 @@ export default function NewInvoicePage() {
   const [lines, setLines] = useState<Line[]>([{ ...blankLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Payment at billing time.
+  const [payStatus, setPayStatus] = useState<"UNPAID" | "PAID" | "PARTIAL">("UNPAID");
+  const [partAmount, setPartAmount] = useState(0);
+  const [payMethod, setPayMethod] = useState("CASH");
 
   // Sales list customers; purchases list suppliers.
   const partyType = type === "SALE" ? "CUSTOMER" : "SUPPLIER";
@@ -115,6 +119,10 @@ export default function NewInvoicePage() {
   );
   const total = round2(subtotal - discount + taxAmount);
 
+  // How much is being paid at the time of billing.
+  const paidNow =
+    payStatus === "PAID" ? total : payStatus === "PARTIAL" ? Number(partAmount) || 0 : 0;
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -129,10 +137,13 @@ export default function NewInvoicePage() {
         return setError(`Not enough stock for "${l.description}" — only ${max} available.`);
       }
     }
+    if (payStatus === "PARTIAL" && (paidNow <= 0 || paidNow > total)) {
+      return setError(`Enter a part-payment between 0 and ${total}.`);
+    }
 
     setSaving(true);
     try {
-      await api("/api/invoices", {
+      const { invoice } = await api<{ invoice: { id: string } }>("/api/invoices", {
         method: "POST",
         body: {
           partyId,
@@ -149,7 +160,24 @@ export default function NewInvoicePage() {
           })),
         },
       });
-      router.push("/invoices");
+
+      // Record the payment received now (if any). SALE = money in, PURCHASE = money out.
+      if (paidNow > 0) {
+        await api("/api/payments", {
+          method: "POST",
+          body: {
+            partyId,
+            invoiceId: invoice.id,
+            direction: type === "SALE" ? "IN" : "OUT",
+            purpose: type === "SALE" ? "Customer Receipt" : "Supplier Payment",
+            amount: paidNow,
+            method: payMethod,
+          },
+        });
+      }
+
+      // Go straight to the printable bill.
+      router.push(`/invoices/${invoice.id}/print`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to create invoice");
     } finally {
@@ -358,6 +386,63 @@ export default function NewInvoicePage() {
             <div className="mt-2 flex justify-between border-t border-gray-200 pt-2 text-lg font-bold">
               <span>Total</span>
               <span>{formatMoney(total)}</span>
+            </div>
+
+            {/* Payment at billing time */}
+            <div className="mt-3 border-t border-gray-200 pt-3">
+              <label className="label">Payment status</label>
+              <div className="flex gap-2">
+                {(["UNPAID", "PAID", "PARTIAL"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setPayStatus(s)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium ${
+                      payStatus === s
+                        ? "bg-brand text-white"
+                        : "border border-gray-300 text-gray-600"
+                    }`}
+                  >
+                    {s === "PARTIAL" ? "Partial" : s === "PAID" ? "Paid" : "Unpaid"}
+                  </button>
+                ))}
+              </div>
+              {payStatus === "PARTIAL" && (
+                <div className="mt-2">
+                  <label className="label">Amount received now</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input"
+                    value={partAmount}
+                    onChange={(e) => setPartAmount(Number(e.target.value))}
+                  />
+                </div>
+              )}
+              {payStatus !== "UNPAID" && (
+                <div className="mt-2">
+                  <label className="label">Received via</label>
+                  <select
+                    className="input"
+                    value={payMethod}
+                    onChange={(e) => setPayMethod(e.target.value)}
+                  >
+                    {["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"].map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {payStatus !== "UNPAID" && (
+                <div className="mt-2 flex justify-between text-sm">
+                  <span className="text-gray-500">Balance after payment</span>
+                  <span className={total - paidNow > 0 ? "font-semibold text-red-600" : ""}>
+                    {formatMoney(total - paidNow)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
