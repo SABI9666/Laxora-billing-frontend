@@ -200,7 +200,8 @@ export default function PosPage() {
           },
         });
       }
-      router.push("/invoices");
+      // Open the printable bill right away so the cashier can print/save PDF.
+      router.push(`/invoices/${invoice.id}/print`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to complete sale");
     } finally {

@@ -143,6 +143,12 @@ export default function InvoicesPage() {
                     {formatMoney(Number(inv.total) - Number(inv.amountPaid))}
                   </td>
                   <td className="table-td text-right">
+                    <Link
+                      href={`/invoices/${inv.id}/print`}
+                      className="mr-3 text-brand hover:underline"
+                    >
+                      PDF
+                    </Link>
                     {inv.type === "SALE" && (
                       <button
                         onClick={() => openReturn(inv)}
