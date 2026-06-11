@@ -38,13 +38,18 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 via-slate-50 to-white px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-brand">Laxora Billing</h1>
-          <p className="mt-1 text-sm text-gray-500">Sign in to your account</p>
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-2xl font-black text-white shadow-lg shadow-brand/20">
+            L
+          </div>
+          <h1 className="bg-gradient-to-r from-brand-600 to-brand-500 bg-clip-text text-2xl font-extrabold text-transparent">
+            Laxora Billing
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">Sign in to your account</p>
         </div>
-        <form onSubmit={onSubmit} className="card space-y-4">
+        <form onSubmit={onSubmit} className="card space-y-4 shadow-lg">
           {error && (
             <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}

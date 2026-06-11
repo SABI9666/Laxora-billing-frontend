@@ -2,36 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer components {
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50;
+@layer base {
+  html {
+    scroll-behavior: smooth;
   }
-  .btn-primary {
-    @apply btn bg-brand text-white hover:bg-brand-dark;
-  }
-  .btn-secondary {
-    @apply btn border border-gray-300 bg-white text-gray-700 hover:bg-gray-50;
-  }
-  .btn-danger {
-    @apply btn bg-red-600 text-white hover:bg-red-700;
-  }
-  .input {
-    @apply w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand;
-  }
-  .label {
-    @apply mb-1 block text-sm font-medium text-gray-700;
-  }
-  .card {
-    @apply rounded-xl border border-gray-200 bg-white p-5 shadow-sm;
-  }
-  .table-th {
-    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500;
-  }
-  .table-td {
-    @apply px-4 py-3 text-sm text-gray-700;
+  body {
+    @apply bg-slate-50 text-slate-800 antialiased;
   }
 }
 
-body {
-  @apply bg-gray-50 text-gray-900;
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white shadow-sm hover:bg-brand-dark hover:shadow;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white shadow-sm hover:bg-red-700;
+  }
+  .input {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/20;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium text-slate-600;
+  }
+  .card {
+    @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm;
+  }
+  .table-th {
+    @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400;
+  }
+  .table-td {
+    @apply px-4 py-3 text-sm text-slate-700;
+  }
+}
+
+/* Slim, modern scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-300;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400;
 }
