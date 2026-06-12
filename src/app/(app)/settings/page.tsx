@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 
 type Business = {
@@ -22,7 +22,21 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [keyBusy, setKeyBusy] = useState(false);
+  const [keyError, setKeyError] = useState("");
   const [copied, setCopied] = useState(false);
+
+  function describeKeyError(err: unknown): string {
+    if (err instanceof ApiError) {
+      if (err.status === 404) {
+        return "The billing backend is running an older version without the online store API. Redeploy the backend and apply the database changes (npx prisma db push), then try again.";
+      }
+      if (err.status === 403) {
+        return "Your role on this shop does not allow managing the online store key (owner/admin/manager required).";
+      }
+      return `${err.message} (HTTP ${err.status})`;
+    }
+    return "Could not reach the billing backend. Check the API URL and try again.";
+  }
 
   useEffect(() => {
     api<{ apiKey: string | null }>("/api/business/online-store-key")
@@ -39,11 +53,14 @@ export default function SettingsPage() {
     )
       return;
     setKeyBusy(true);
+    setKeyError("");
     try {
       const r = await api<{ apiKey: string }>("/api/business/online-store-key", {
         method: "POST",
       });
       setApiKey(r.apiKey);
+    } catch (err) {
+      setKeyError(describeKeyError(err));
     } finally {
       setKeyBusy(false);
     }
@@ -53,9 +70,12 @@ export default function SettingsPage() {
     if (!confirm("Disconnect the online store? Website stock sync and order billing will stop."))
       return;
     setKeyBusy(true);
+    setKeyError("");
     try {
       await api("/api/business/online-store-key", { method: "DELETE" });
       setApiKey(null);
+    } catch (err) {
+      setKeyError(describeKeyError(err));
     } finally {
       setKeyBusy(false);
     }
@@ -188,6 +208,9 @@ export default function SettingsPage() {
           every paid website order automatically reduces stock here and creates a bill under
           the Online Orders menu.
         </p>
+        {keyError && (
+          <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{keyError}</div>
+        )}
         {apiKey ? (
           <>
             <div className="flex items-center gap-2">
