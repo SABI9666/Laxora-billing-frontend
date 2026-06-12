@@ -20,6 +20,54 @@ export default function SettingsPage() {
   const [form, setForm] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    api<{ apiKey: string | null }>("/api/business/online-store-key")
+      .then((r) => setApiKey(r.apiKey))
+      .catch(() => {});
+  }, []);
+
+  async function generateKey() {
+    if (
+      apiKey &&
+      !confirm(
+        "Generate a new key? The website will stop syncing until you update it with the new key."
+      )
+    )
+      return;
+    setKeyBusy(true);
+    try {
+      const r = await api<{ apiKey: string }>("/api/business/online-store-key", {
+        method: "POST",
+      });
+      setApiKey(r.apiKey);
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function disconnectKey() {
+    if (!confirm("Disconnect the online store? Website stock sync and order billing will stop."))
+      return;
+    setKeyBusy(true);
+    try {
+      await api("/api/business/online-store-key", { method: "DELETE" });
+      setApiKey(null);
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  function copyKey() {
+    if (!apiKey) return;
+    navigator.clipboard.writeText(apiKey).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   useEffect(() => {
     api<{ business: Business }>("/api/business").then((r) =>
@@ -131,6 +179,53 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+
+      <div className="card mt-6 max-w-xl space-y-3">
+        <p className="text-sm font-semibold">Online Store (Laxorashopping website)</p>
+        <p className="text-xs text-gray-400">
+          Connect the shopping website to this shop&apos;s stock. The website shows this
+          shop&apos;s live stock for matching products (matched by SKU or product name), and
+          every paid website order automatically reduces stock here and creates a bill under
+          the Online Orders menu.
+        </p>
+        {apiKey ? (
+          <>
+            <div className="flex items-center gap-2">
+              <input className="input flex-1 font-mono text-xs" value={apiKey} readOnly />
+              <button type="button" className="btn-secondary" onClick={copyKey}>
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              In the website&apos;s Vercel project, set <code>LAXORA_BILLING_API_KEY</code> to
+              this key and <code>LAXORA_BILLING_API_URL</code> to this billing API&apos;s URL,
+              then redeploy the website.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={generateKey}
+                disabled={keyBusy}
+              >
+                Regenerate Key
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={disconnectKey}
+                disabled={keyBusy}
+              >
+                Disconnect
+              </button>
+            </div>
+          </>
+        ) : (
+          <button type="button" className="btn-primary" onClick={generateKey} disabled={keyBusy}>
+            {keyBusy ? "Generating…" : "Connect Online Store"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
