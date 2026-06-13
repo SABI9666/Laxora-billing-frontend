@@ -3,17 +3,23 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import { uploadProductImage } from "@/lib/upload";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
-type Category = { id: string; name: string };
+type Category = {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  parent?: { id: string; name: string } | null;
+};
 type Party = { id: string; name: string; type: string };
 
 type Item = {
   id: string;
   name: string;
   categoryId?: string | null;
-  category?: { id: string; name: string } | null;
+  category?: { id: string; name: string; parentId?: string | null } | null;
   supplierId?: string | null;
   supplier?: { id: string; name: string } | null;
   sku?: string;
@@ -23,11 +29,17 @@ type Item = {
   hsn?: string;
   unit: string;
   salePrice: string;
+  mrp: string;
   purchasePrice: string;
   taxRate: string;
   stockQty: string;
   lowStockAlert: string;
   isService: boolean;
+  description?: string | null;
+  imageUrl?: string | null;
+  imageUrl2?: string | null;
+  imageUrl3?: string | null;
+  publishOnline: boolean;
 };
 
 const empty = {
@@ -41,11 +53,17 @@ const empty = {
   hsn: "",
   unit: "PCS",
   salePrice: 0,
+  mrp: 0,
   purchasePrice: 0,
   taxRate: 0,
   stockQty: 0,
   lowStockAlert: 0,
   isService: false,
+  description: "",
+  imageUrl: "",
+  imageUrl2: "",
+  imageUrl3: "",
+  publishOnline: false,
 };
 
 export default function ItemsPage() {
@@ -55,9 +73,15 @@ export default function ItemsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [form, setForm] = useState<any>(empty);
+  // Main category selected in the form (the saved categoryId is the
+  // subcategory if one is chosen, otherwise the main category).
+  const [mainCategoryId, setMainCategoryId] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
+
+  const mainCategories = categories.filter((c) => !c.parentId);
+  const subCategories = categories.filter((c) => c.parentId === mainCategoryId);
 
   // Live client-side search across name, brand, category, SKU, barcode, wattage.
   const term = search.trim().toLowerCase();
@@ -86,24 +110,48 @@ export default function ItemsPage() {
   function openNew() {
     setEditing(null);
     setForm(empty);
+    setMainCategoryId("");
     setOpen(true);
   }
   function openEdit(it: Item) {
     setEditing(it);
+    // Work out which dropdown the saved category belongs in: if it has a
+    // parent it's a subcategory, otherwise it's a main category.
+    const cat = it.category;
+    setMainCategoryId(cat ? (cat.parentId || cat.id) : "");
     setForm({
+      ...empty,
       ...it,
       categoryId: it.categoryId || "",
       supplierId: it.supplierId || "",
       barcode: it.barcode || "",
       brand: it.brand || "",
       wattage: it.wattage || "",
+      hsn: it.hsn || "",
+      description: it.description || "",
+      imageUrl: it.imageUrl || "",
+      imageUrl2: it.imageUrl2 || "",
+      imageUrl3: it.imageUrl3 || "",
+      publishOnline: !!it.publishOnline,
       salePrice: Number(it.salePrice),
+      mrp: Number(it.mrp),
       purchasePrice: Number(it.purchasePrice),
       taxRate: Number(it.taxRate),
       stockQty: Number(it.stockQty),
       lowStockAlert: Number(it.lowStockAlert),
     });
     setOpen(true);
+  }
+
+  // Picking a main category clears any subcategory and makes the main the
+  // saved category until a subcategory is chosen.
+  function pickMain(id: string) {
+    setMainCategoryId(id);
+    setForm((f: any) => ({ ...f, categoryId: id }));
+  }
+  // Picking a subcategory ("" means "use the main category only").
+  function pickSub(id: string) {
+    setForm((f: any) => ({ ...f, categoryId: id || mainCategoryId }));
   }
 
   async function save(e: React.FormEvent) {
@@ -114,7 +162,13 @@ export default function ItemsPage() {
         ...form,
         categoryId: form.categoryId || null,
         supplierId: form.supplierId || null,
+        description: form.description || null,
+        imageUrl: form.imageUrl || null,
+        imageUrl2: form.imageUrl2 || null,
+        imageUrl3: form.imageUrl3 || null,
+        publishOnline: !!form.publishOnline,
         salePrice: Number(form.salePrice),
+        mrp: Number(form.mrp),
         purchasePrice: Number(form.purchasePrice),
         taxRate: Number(form.taxRate),
         stockQty: Number(form.stockQty),
@@ -151,10 +205,10 @@ export default function ItemsPage() {
   return (
     <div>
       <PageHeader
-        title="Items"
+        title="Products"
         action={
           <button onClick={openNew} className="btn-primary">
-            + Add Item
+            + Add Product
           </button>
         }
       />
@@ -185,9 +239,10 @@ export default function ItemsPage() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
+                <th className="table-th"></th>
                 <th className="table-th">Name</th>
                 <th className="table-th">Category</th>
-                <th className="table-th">Unit</th>
+                <th className="table-th">Online</th>
                 <th className="table-th text-right">Sale Price</th>
                 <th className="table-th text-right">Tax %</th>
                 <th className="table-th text-right">Stock</th>
@@ -200,12 +255,34 @@ export default function ItemsPage() {
                   !it.isService && Number(it.stockQty) <= Number(it.lowStockAlert);
                 return (
                   <tr key={it.id}>
+                    <td className="table-td">
+                      {it.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={it.imageUrl}
+                          alt={it.name}
+                          className="h-10 w-10 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+                          🖼
+                        </div>
+                      )}
+                    </td>
                     <td className="table-td font-medium">
                       {it.name}
                       {it.brand ? <span className="ml-1 text-xs text-gray-400">{it.brand}</span> : null}
                     </td>
                     <td className="table-td text-gray-500">{it.category?.name || "—"}</td>
-                    <td className="table-td">{it.isService ? "Service" : it.unit}</td>
+                    <td className="table-td">
+                      {it.publishOnline ? (
+                        <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
+                          Live
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">Off</span>
+                      )}
+                    </td>
                     <td className="table-td text-right">{formatMoney(it.salePrice)}</td>
                     <td className="table-td text-right">{Number(it.taxRate)}%</td>
                     <td className="table-td text-right">
@@ -236,7 +313,7 @@ export default function ItemsPage() {
               })}
               {visibleItems.length === 0 && (
                 <tr>
-                  <td className="table-td text-gray-400" colSpan={7}>
+                  <td className="table-td text-gray-400" colSpan={8}>
                     {items.length === 0 ? "No products yet." : "No products match your search."}
                   </td>
                 </tr>
@@ -247,7 +324,7 @@ export default function ItemsPage() {
       </div>
 
       {open && (
-        <Modal title={editing ? "Edit Item" : "Add Item"} onClose={() => setOpen(false)}>
+        <Modal title={editing ? "Edit Product" : "Add Product"} onClose={() => setOpen(false)}>
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -255,10 +332,39 @@ export default function ItemsPage() {
                 <input className="input" value={form.name} onChange={set("name")} required />
               </div>
               <div>
-                <label className="label">Category</label>
-                <select className="input" value={form.categoryId} onChange={set("categoryId")}>
+                <label className="label">Brand</label>
+                <input className="input" value={form.brand} onChange={set("brand")} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Main Category</label>
+                <select
+                  className="input"
+                  value={mainCategoryId}
+                  onChange={(e) => pickMain(e.target.value)}
+                >
                   <option value="">— None —</option>
-                  {categories.map((c) => (
+                  {mainCategories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Subcategory</label>
+                <select
+                  className="input"
+                  value={subCategories.some((c) => c.id === form.categoryId) ? form.categoryId : ""}
+                  onChange={(e) => pickSub(e.target.value)}
+                  disabled={!mainCategoryId || subCategories.length === 0}
+                >
+                  <option value="">
+                    {subCategories.length === 0 ? "— No subcategories —" : "— None —"}
+                  </option>
+                  {subCategories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
@@ -266,6 +372,26 @@ export default function ItemsPage() {
                 </select>
               </div>
             </div>
+
+            <div>
+              <label className="label">Description (shown on website)</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={form.description}
+                onChange={set("description")}
+              />
+            </div>
+
+            <div>
+              <label className="label">Product Images</label>
+              <div className="grid grid-cols-3 gap-3">
+                <ImageField value={form.imageUrl} onChange={(v) => setForm({ ...form, imageUrl: v })} />
+                <ImageField value={form.imageUrl2} onChange={(v) => setForm({ ...form, imageUrl2: v })} />
+                <ImageField value={form.imageUrl3} onChange={(v) => setForm({ ...form, imageUrl3: v })} />
+              </div>
+            </div>
+
             <div>
               <label className="label">Supplier (who you buy this from)</label>
               <select className="input" value={form.supplierId} onChange={set("supplierId")}>
@@ -276,28 +402,13 @@ export default function ItemsPage() {
                   </option>
                 ))}
               </select>
-              {suppliers.length === 0 && (
-                <p className="mt-1 text-xs text-gray-400">
-                  Add suppliers in Customers &amp; Suppliers (type Supplier) to link them here.
-                </p>
-              )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">Brand</label>
-                <input className="input" value={form.brand} onChange={set("brand")} />
-              </div>
+
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="label">Wattage / Model</label>
-                <input
-                  className="input"
-                  value={form.wattage}
-                  onChange={set("wattage")}
-                  placeholder="e.g. 9W"
-                />
+                <input className="input" value={form.wattage} onChange={set("wattage")} placeholder="e.g. 9W" />
               </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="label">SKU</label>
                 <input className="input" value={form.sku} onChange={set("sku")} />
@@ -306,43 +417,27 @@ export default function ItemsPage() {
                 <label className="label">Barcode</label>
                 <input className="input" value={form.barcode} onChange={set("barcode")} />
               </div>
-              <div>
-                <label className="label">HSN</label>
-                <input className="input" value={form.hsn} onChange={set("hsn")} />
-              </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+
+            <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="label">Sale Price</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="input"
-                  value={form.salePrice}
-                  onChange={set("salePrice")}
-                />
+                <input type="number" step="0.01" className="input" value={form.salePrice} onChange={set("salePrice")} />
+              </div>
+              <div>
+                <label className="label">M.R.P. (strike)</label>
+                <input type="number" step="0.01" className="input" value={form.mrp} onChange={set("mrp")} />
               </div>
               <div>
                 <label className="label">Purchase Price</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="input"
-                  value={form.purchasePrice}
-                  onChange={set("purchasePrice")}
-                />
+                <input type="number" step="0.01" className="input" value={form.purchasePrice} onChange={set("purchasePrice")} />
               </div>
               <div>
                 <label className="label">Tax %</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="input"
-                  value={form.taxRate}
-                  onChange={set("taxRate")}
-                />
+                <input type="number" step="0.01" className="input" value={form.taxRate} onChange={set("taxRate")} />
               </div>
             </div>
+
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -351,6 +446,7 @@ export default function ItemsPage() {
               />
               This is a service (no stock tracking)
             </label>
+
             {!form.isService && (
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -359,26 +455,30 @@ export default function ItemsPage() {
                 </div>
                 <div>
                   <label className="label">Stock Qty</label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    className="input"
-                    value={form.stockQty}
-                    onChange={set("stockQty")}
-                  />
+                  <input type="number" step="0.001" className="input" value={form.stockQty} onChange={set("stockQty")} />
                 </div>
                 <div>
                   <label className="label">Low Stock Alert</label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    className="input"
-                    value={form.lowStockAlert}
-                    onChange={set("lowStockAlert")}
-                  />
+                  <input type="number" step="0.001" className="input" value={form.lowStockAlert} onChange={set("lowStockAlert")} />
                 </div>
               </div>
             )}
+
+            <label className="flex items-center gap-2 rounded-lg bg-brand-light px-3 py-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={!!form.publishOnline}
+                onChange={(e) => setForm({ ...form, publishOnline: e.target.checked })}
+              />
+              <span>
+                <span className="font-medium">Show this product on the website</span>
+                <span className="block text-xs text-gray-500">
+                  When on, the Laxorashopping site lists this product with its images and this
+                  shop&apos;s live stock; online orders reduce that stock automatically.
+                </span>
+              </span>
+            </label>
+
             <div className="flex justify-end gap-3">
               <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
                 Cancel
@@ -389,6 +489,66 @@ export default function ItemsPage() {
             </div>
           </form>
         </Modal>
+      )}
+    </div>
+  );
+}
+
+// One image slot: shows a preview, lets you upload a file (to Firebase Storage)
+// or paste an image URL, and clear it.
+function ImageField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const url = await uploadProductImage(file);
+      onChange(url);
+    } catch {
+      setError("Upload failed — paste an image URL instead.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 p-2">
+      <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded bg-slate-50">
+        {value ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="" className="h-full w-full object-contain" />
+        ) : (
+          <span className="text-2xl text-slate-300">🖼</span>
+        )}
+      </div>
+      <input type="file" accept="image/*" onChange={onFile} className="block w-full text-xs" />
+      <input
+        className="input mt-1 text-xs"
+        placeholder="or paste image URL"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {uploading && <p className="mt-1 text-xs text-brand">Uploading…</p>}
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="mt-1 text-xs text-red-600 hover:underline"
+        >
+          Remove
+        </button>
       )}
     </div>
   );
