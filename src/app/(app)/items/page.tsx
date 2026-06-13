@@ -509,13 +509,24 @@ function ImageField({
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image is larger than 5 MB — please use a smaller image.");
+      e.target.value = "";
+      return;
+    }
     setUploading(true);
     setError("");
     try {
       const url = await uploadProductImage(file);
       onChange(url);
-    } catch {
-      setError("Upload failed — paste an image URL instead.");
+    } catch (err) {
+      // Surface the real reason (e.g. a CORS or permission error) so it can be
+      // fixed, while still letting the user paste a URL as a fallback.
+      console.error("Image upload failed:", err);
+      setError(
+        (err instanceof Error ? err.message : "Upload failed") +
+          " — or paste an image URL below."
+      );
     } finally {
       setUploading(false);
       e.target.value = "";
