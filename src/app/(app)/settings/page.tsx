@@ -14,6 +14,8 @@ type Business = {
   logoUrl?: string;
   openingCash?: string;
   openingBank?: string;
+  saleInvoicePrefix?: string | null;
+  nextSaleNo?: number;
 };
 
 export default function SettingsPage() {
@@ -100,9 +102,45 @@ export default function SettingsPage() {
         logoUrl: r.business.logoUrl || "",
         openingCash: Number(r.business.openingCash ?? 0),
         openingBank: Number(r.business.openingBank ?? 0),
+        saleInvoicePrefix: r.business.saleInvoicePrefix ?? "",
+        nextSaleNo: Number(r.business.nextSaleNo ?? 1),
       })
     );
   }, []);
+
+  const [numSaving, setNumSaving] = useState(false);
+  const [numSaved, setNumSaved] = useState(false);
+
+  // Invoice numbering is saved separately so a normal profile save never
+  // rolls back the running invoice counter.
+  async function saveNumbering(e: React.FormEvent) {
+    e.preventDefault();
+    const next = Number(form.nextSaleNo);
+    if (!Number.isInteger(next) || next < 1) {
+      alert("Next invoice number must be a whole number of 1 or more.");
+      return;
+    }
+    if (
+      !confirm(
+        `Set the next sale invoice to "${form.saleInvoicePrefix || "INV-"}${String(next).padStart(4, "0")}"? New bills will continue from here.`
+      )
+    )
+      return;
+    setNumSaving(true);
+    setNumSaved(false);
+    try {
+      await api("/api/business", {
+        method: "PUT",
+        body: {
+          saleInvoicePrefix: form.saleInvoicePrefix || "",
+          nextSaleNo: next,
+        },
+      });
+      setNumSaved(true);
+    } finally {
+      setNumSaving(false);
+    }
+  }
 
   const set = (k: string) => (e: React.ChangeEvent<any>) => {
     setForm({ ...form, [k]: e.target.value });
@@ -113,10 +151,13 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     try {
+      // Exclude invoice-numbering fields; they have their own save so a
+      // profile save never rewinds the running counter.
+      const { saleInvoicePrefix, nextSaleNo, ...profile } = form;
       await api("/api/business", {
         method: "PUT",
         body: {
-          ...form,
+          ...profile,
           openingCash: Number(form.openingCash) || 0,
           openingBank: Number(form.openingBank) || 0,
         },
@@ -196,6 +237,60 @@ export default function SettingsPage() {
         <div className="flex justify-end">
           <button type="submit" className="btn-primary" disabled={saving}>
             {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </form>
+
+      <form onSubmit={saveNumbering} className="card mt-6 max-w-xl space-y-3">
+        <p className="text-sm font-semibold">Sale Invoice Numbering</p>
+        <p className="text-xs text-gray-400">
+          Choose how sale (counter) invoice numbers look and where they continue from. Example:
+          prefix <code>26-</code> with next number <code>27394</code> makes the next bill{" "}
+          <b>26-27394</b>, then 26-27395, and so on. Leave the prefix blank to use{" "}
+          <code>INV-</code>. This does not affect online orders (which use their own ONL- series).
+        </p>
+        {numSaved && (
+          <div className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+            Saved! The next sale invoice will be{" "}
+            <b>
+              {(form.saleInvoicePrefix || "INV-") +
+                String(Number(form.nextSaleNo) || 1).padStart(4, "0")}
+            </b>
+            .
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Invoice prefix</label>
+            <input
+              className="input"
+              placeholder="e.g. 26-"
+              value={form.saleInvoicePrefix}
+              onChange={set("saleInvoicePrefix")}
+            />
+          </div>
+          <div>
+            <label className="label">Next invoice number</label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              className="input"
+              value={form.nextSaleNo}
+              onChange={set("nextSaleNo")}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-400">
+          Preview:{" "}
+          <b>
+            {(form.saleInvoicePrefix || "INV-") +
+              String(Number(form.nextSaleNo) || 1).padStart(4, "0")}
+          </b>
+        </p>
+        <div className="flex justify-end">
+          <button type="submit" className="btn-primary" disabled={numSaving}>
+            {numSaving ? "Saving…" : "Save Numbering"}
           </button>
         </div>
       </form>
