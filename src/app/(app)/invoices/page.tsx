@@ -170,6 +170,12 @@ export default function InvoicesPage() {
                     >
                       PDF
                     </Link>
+                    <Link
+                      href={`/invoices/${inv.id}/edit`}
+                      className="mr-3 text-brand hover:underline"
+                    >
+                      Edit
+                    </Link>
                     {inv.type === "SALE" && (
                       <button
                         onClick={() => openReturn(inv)}
