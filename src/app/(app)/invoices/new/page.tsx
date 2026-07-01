@@ -37,6 +37,8 @@ export default function NewInvoicePage() {
   const [dueDate, setDueDate] = useState("");
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
+  // When on, the entered Rate already includes GST (tax is split out).
+  const [taxInclusive, setTaxInclusive] = useState(false);
   const [lines, setLines] = useState<Line[]>([{ ...blankLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -113,9 +115,14 @@ export default function NewInvoicePage() {
     return Number(it.stockQty);
   }
 
-  const subtotal = round2(lines.reduce((s, l) => s + l.quantity * l.rate, 0));
+  // Ex-GST (taxable) rate/amount for a line. When tax-inclusive, the entered
+  // rate is divided back out; otherwise it's used as-is.
+  const netRate = (l: Line) => round2(l.rate / (taxInclusive ? 1 + l.taxRate / 100 : 1));
+  const lineAmount = (l: Line) => round2(l.quantity * netRate(l));
+
+  const subtotal = round2(lines.reduce((s, l) => s + lineAmount(l), 0));
   const taxAmount = round2(
-    lines.reduce((s, l) => s + (l.quantity * l.rate * l.taxRate) / 100, 0)
+    lines.reduce((s, l) => s + (lineAmount(l) * l.taxRate) / 100, 0)
   );
   const total = round2(subtotal - discount + taxAmount);
 
@@ -151,6 +158,7 @@ export default function NewInvoicePage() {
           discount: Number(discount) || 0,
           dueDate: dueDate || undefined,
           notes: notes || undefined,
+          taxInclusive,
           items: validLines.map((l) => ({
             itemId: l.itemId || undefined,
             description: l.description,
@@ -326,7 +334,7 @@ export default function NewInvoicePage() {
                       />
                     </td>
                     <td className="table-td text-right font-medium">
-                      {formatMoney(l.quantity * l.rate)}
+                      {formatMoney(lineAmount(l))}
                     </td>
                     <td className="table-td text-right">
                       <button
@@ -343,7 +351,7 @@ export default function NewInvoicePage() {
               </tbody>
             </table>
           </div>
-          <div className="border-t border-gray-200 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 p-3">
             <button
               type="button"
               onClick={() => setLines([...lines, { ...blankLine }])}
@@ -351,6 +359,14 @@ export default function NewInvoicePage() {
             >
               + Add Line
             </button>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={taxInclusive}
+                onChange={(e) => setTaxInclusive(e.target.checked)}
+              />
+              Rate includes GST (tax-inclusive)
+            </label>
           </div>
         </div>
 
@@ -387,6 +403,12 @@ export default function NewInvoicePage() {
               <span>Total</span>
               <span>{formatMoney(total)}</span>
             </div>
+            {taxInclusive && (
+              <p className="mt-1 text-xs text-gray-400">
+                Rates entered include GST — tax is split out above, so the total is what the
+                customer pays.
+              </p>
+            )}
 
             {/* Payment at billing time */}
             <div className="mt-3 border-t border-gray-200 pt-3">
