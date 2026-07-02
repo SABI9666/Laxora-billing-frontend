@@ -36,6 +36,10 @@ const empty = {
   method: "CASH",
   notes: "",
   purpose: "Supplier Payment",
+  // Split payment: part cash + part bank in one voucher.
+  split: false,
+  cashAmount: 0,
+  bankAmount: 0,
 };
 
 export default function PaymentsPage() {
@@ -90,24 +94,48 @@ export default function PaymentsPage() {
   const needsParty = isCredit || isSupplierPay;
   const isTransfer = form.purpose === "Bank Deposit" || form.purpose === "Bank Withdrawal";
 
+  const splitOn = form.split && !isTransfer;
+  const splitTotal = (Number(form.cashAmount) || 0) + (Number(form.bankAmount) || 0);
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setError("");
+    const base = {
+      partyId: needsParty ? form.partyId : undefined,
+      invoiceId: needsParty ? form.invoiceId || undefined : undefined,
+      direction,
+      purpose: form.purpose || undefined,
+      notes: form.notes || undefined,
+    };
+    if (splitOn) {
+      const cash = Number(form.cashAmount) || 0;
+      const bank = Number(form.bankAmount) || 0;
+      if (cash + bank <= 0) return setError("Enter a cash and/or bank amount.");
+    } else if (!(Number(form.amount) > 0)) {
+      return setError("Enter an amount.");
+    }
+    setSaving(true);
     try {
-      await api("/api/payments", {
-        method: "POST",
-        body: {
-          partyId: needsParty ? form.partyId : undefined,
-          invoiceId: needsParty ? form.invoiceId || undefined : undefined,
-          direction,
-          purpose: form.purpose || undefined,
-          amount: Number(form.amount),
-          // Bank deposit/withdrawal are transfers — method is irrelevant.
-          method: isTransfer ? "BANK" : form.method,
-          notes: form.notes || undefined,
-        },
-      });
+      if (splitOn) {
+        // Record one voucher per method so the cash book and bill update
+        // correctly for each.
+        const cash = Number(form.cashAmount) || 0;
+        const bank = Number(form.bankAmount) || 0;
+        if (cash > 0)
+          await api("/api/payments", { method: "POST", body: { ...base, amount: cash, method: "CASH" } });
+        if (bank > 0)
+          await api("/api/payments", { method: "POST", body: { ...base, amount: bank, method: "BANK" } });
+      } else {
+        await api("/api/payments", {
+          method: "POST",
+          body: {
+            ...base,
+            amount: Number(form.amount),
+            // Bank deposit/withdrawal are transfers — method is irrelevant.
+            method: isTransfer ? "BANK" : form.method,
+          },
+        });
+      }
       setOpen(false);
       await load();
     } catch (err) {
@@ -302,36 +330,77 @@ export default function PaymentsPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">Amount</label>
+            {!isTransfer && (
+              <label className="flex items-center gap-2 text-sm text-gray-600">
                 <input
-                  type="number"
-                  step="0.01"
-                  className="input"
-                  value={form.amount}
-                  onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
-                  required
-                  autoFocus
+                  type="checkbox"
+                  checked={form.split}
+                  onChange={(e) => setForm({ ...form, split: e.target.checked })}
                 />
-              </div>
-              {!isTransfer && (
-                <div>
-                  <label className="label">Cash or Bank</label>
-                  <select
-                    className="input"
-                    value={form.method}
-                    onChange={(e) => setForm({ ...form, method: e.target.value })}
-                  >
-                    {METHODS.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
+                Received partly in cash and partly in bank (split)
+              </label>
+            )}
+
+            {splitOn ? (
+              <div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">💵 Cash amount</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="input"
+                      value={form.cashAmount}
+                      onChange={(e) => setForm({ ...form, cashAmount: Number(e.target.value) })}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="label">🏦 Bank / UPI amount</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="input"
+                      value={form.bankAmount}
+                      onChange={(e) => setForm({ ...form, bankAmount: Number(e.target.value) })}
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
+                <p className="mt-1 text-right text-sm text-gray-500">
+                  Total: <b>{formatMoney(splitTotal)}</b>
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input"
+                    value={form.amount}
+                    onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
+                    autoFocus
+                  />
+                </div>
+                {!isTransfer && (
+                  <div>
+                    <label className="label">Cash or Bank</label>
+                    <select
+                      className="input"
+                      value={form.method}
+                      onChange={(e) => setForm({ ...form, method: e.target.value })}
+                    >
+                      {METHODS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label className="label">Note (optional)</label>
               <input

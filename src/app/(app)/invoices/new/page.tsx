@@ -46,6 +46,10 @@ export default function NewInvoicePage() {
   const [payStatus, setPayStatus] = useState<"UNPAID" | "PAID" | "PARTIAL">("UNPAID");
   const [partAmount, setPartAmount] = useState(0);
   const [payMethod, setPayMethod] = useState("CASH");
+  // Split payment: part cash + part bank.
+  const [splitPay, setSplitPay] = useState(false);
+  const [cashAmount, setCashAmount] = useState(0);
+  const [bankAmount, setBankAmount] = useState(0);
 
   // Sales list customers; purchases list suppliers.
   const partyType = type === "SALE" ? "CUSTOMER" : "SUPPLIER";
@@ -127,8 +131,15 @@ export default function NewInvoicePage() {
   const total = round2(subtotal - discount + taxAmount);
 
   // How much is being paid at the time of billing.
+  const splitTotal = (Number(cashAmount) || 0) + (Number(bankAmount) || 0);
   const paidNow =
-    payStatus === "PAID" ? total : payStatus === "PARTIAL" ? Number(partAmount) || 0 : 0;
+    payStatus === "UNPAID"
+      ? 0
+      : splitPay
+      ? splitTotal
+      : payStatus === "PAID"
+      ? total
+      : Number(partAmount) || 0;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -144,8 +155,11 @@ export default function NewInvoicePage() {
         return setError(`Not enough stock for "${l.description}" — only ${max} available.`);
       }
     }
-    if (payStatus === "PARTIAL" && (paidNow <= 0 || paidNow > total)) {
+    if (payStatus === "PARTIAL" && !splitPay && (paidNow <= 0 || paidNow > total)) {
       return setError(`Enter a part-payment between 0 and ${total}.`);
+    }
+    if (payStatus !== "UNPAID" && splitPay && (paidNow <= 0 || paidNow > total)) {
+      return setError(`Enter cash/bank amounts totalling between 0 and ${total}.`);
     }
 
     setSaving(true);
@@ -171,17 +185,23 @@ export default function NewInvoicePage() {
 
       // Record the payment received now (if any). SALE = money in, PURCHASE = money out.
       if (paidNow > 0) {
-        await api("/api/payments", {
-          method: "POST",
-          body: {
-            partyId,
-            invoiceId: invoice.id,
-            direction: type === "SALE" ? "IN" : "OUT",
-            purpose: type === "SALE" ? "Customer Receipt" : "Supplier Payment",
-            amount: paidNow,
-            method: payMethod,
-          },
-        });
+        const base = {
+          partyId,
+          invoiceId: invoice.id,
+          direction: type === "SALE" ? "IN" : "OUT",
+          purpose: type === "SALE" ? "Customer Receipt" : "Supplier Payment",
+        };
+        if (splitPay) {
+          // One payment per method so the cash book tracks cash vs bank.
+          const cash = Number(cashAmount) || 0;
+          const bank = Number(bankAmount) || 0;
+          if (cash > 0)
+            await api("/api/payments", { method: "POST", body: { ...base, amount: cash, method: "CASH" } });
+          if (bank > 0)
+            await api("/api/payments", { method: "POST", body: { ...base, amount: bank, method: "BANK" } });
+        } else {
+          await api("/api/payments", { method: "POST", body: { ...base, amount: paidNow, method: payMethod } });
+        }
       }
 
       // Go straight to the printable bill.
@@ -429,7 +449,7 @@ export default function NewInvoicePage() {
                   </button>
                 ))}
               </div>
-              {payStatus === "PARTIAL" && (
+              {payStatus === "PARTIAL" && !splitPay && (
                 <div className="mt-2">
                   <label className="label">Amount received now</label>
                   <input
@@ -442,6 +462,40 @@ export default function NewInvoicePage() {
                 </div>
               )}
               {payStatus !== "UNPAID" && (
+                <label className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={splitPay}
+                    onChange={(e) => setSplitPay(e.target.checked)}
+                  />
+                  Split — part cash, part bank
+                </label>
+              )}
+              {payStatus !== "UNPAID" && splitPay && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="label">💵 Cash</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="input"
+                      value={cashAmount}
+                      onChange={(e) => setCashAmount(Number(e.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">🏦 Bank / UPI</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="input"
+                      value={bankAmount}
+                      onChange={(e) => setBankAmount(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              )}
+              {payStatus !== "UNPAID" && !splitPay && (
                 <div className="mt-2">
                   <label className="label">Received via</label>
                   <select
