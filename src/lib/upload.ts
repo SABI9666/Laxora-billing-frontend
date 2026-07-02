@@ -40,3 +40,6 @@ export async function uploadProductImage(file: File): Promise<string> {
   const data = await res.json();
   return data.url as string;
 }
+
+// Generic file upload (images or PDF), e.g. a supplier's purchase bill.
+export const uploadFile = uploadProductImage;
