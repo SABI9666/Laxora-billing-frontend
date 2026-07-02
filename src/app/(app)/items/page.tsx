@@ -40,6 +40,7 @@ type Item = {
   imageUrl2?: string | null;
   imageUrl3?: string | null;
   publishOnline: boolean;
+  purchaseBillUrl?: string | null;
 };
 
 const empty = {
@@ -64,6 +65,7 @@ const empty = {
   imageUrl2: "",
   imageUrl3: "",
   publishOnline: false,
+  purchaseBillUrl: "",
 };
 
 export default function ItemsPage() {
@@ -461,6 +463,23 @@ export default function ItemsPage() {
                   <label className="label">Low Stock Alert</label>
                   <input type="number" step="0.001" className="input" value={form.lowStockAlert} onChange={set("lowStockAlert")} />
                 </div>
+              </div>
+            )}
+
+            {form.purchaseBillUrl && (
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                📄 Supplier purchase bill:{" "}
+                <a
+                  href={form.purchaseBillUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-brand hover:underline"
+                >
+                  view
+                </a>
+                <span className="ml-1 text-xs text-gray-400">
+                  (from the latest purchase entry with a bill uploaded)
+                </span>
               </div>
             )}
 
