@@ -237,6 +237,12 @@ export default function ExpensesPage() {
                   </option>
                 ))}
               </select>
+              {!isReturn && form.invoiceId && (
+                <p className="mt-1 text-xs text-gray-400">
+                  This amount will be deducted from the bill&apos;s due amount, and the bill&apos;s
+                  status will update to Paid/Partial accordingly.
+                </p>
+              )}
             </div>
 
             {isReturn ? (
