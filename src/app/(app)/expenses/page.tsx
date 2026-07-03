@@ -12,6 +12,7 @@ type Expense = {
   amount: string;
   note?: string | null;
   invoiceId?: string | null;
+  method?: string | null;
   date: string;
 };
 type Invoice = { id: string; invoiceNumber: string };
@@ -40,6 +41,7 @@ export default function ExpensesPage() {
     amount: 0,
     note: "",
     invoiceId: "",
+    method: "CASH",
   });
 
   // Return-mode state: the selected bill's items + how many to return.
@@ -79,7 +81,7 @@ export default function ExpensesPage() {
   }, [isReturn, form.invoiceId]);
 
   function openNew() {
-    setForm({ category: "Commission", amount: 0, note: "", invoiceId: "" });
+    setForm({ category: "Commission", amount: 0, note: "", invoiceId: "", method: "CASH" });
     setBillItems([]);
     setRetQty({});
     setError("");
@@ -110,6 +112,7 @@ export default function ExpensesPage() {
             amount: Number(form.amount),
             note: form.note || undefined,
             invoiceId: form.invoiceId || undefined,
+            method: form.method || undefined,
           },
         });
       }
@@ -162,6 +165,7 @@ export default function ExpensesPage() {
               <th className="table-th">Date</th>
               <th className="table-th">Category</th>
               <th className="table-th">For Bill</th>
+              <th className="table-th">Paid via</th>
               <th className="table-th">Note</th>
               <th className="table-th text-right">Amount</th>
               <th className="table-th"></th>
@@ -173,6 +177,7 @@ export default function ExpensesPage() {
                 <td className="table-td">{formatDate(x.date)}</td>
                 <td className="table-td font-medium">{x.category}</td>
                 <td className="table-td text-gray-500">{invNo(x.invoiceId)}</td>
+                <td className="table-td text-gray-500">{x.method || "—"}</td>
                 <td className="table-td text-gray-500">{x.note || "—"}</td>
                 <td className="table-td text-right font-semibold text-red-600">
                   {formatMoney(x.amount)}
@@ -186,7 +191,7 @@ export default function ExpensesPage() {
             ))}
             {expenses.length === 0 && (
               <tr>
-                <td className="table-td text-gray-400" colSpan={6}>
+                <td className="table-td text-gray-400" colSpan={7}>
                   No charges recorded yet.
                 </td>
               </tr>
@@ -270,17 +275,37 @@ export default function ExpensesPage() {
                 </div>
               </div>
             ) : (
-              <div>
-                <label className="label">Amount</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="input"
-                  value={form.amount}
-                  onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
-                  required
-                  autoFocus
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input"
+                    value={form.amount}
+                    onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="label">Paid via</label>
+                  <select
+                    className="input"
+                    value={form.method}
+                    onChange={(e) => setForm({ ...form, method: e.target.value })}
+                  >
+                    {["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"].map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Reduces this shop&apos;s {form.method === "CASH" ? "cash" : "bank"} balance in
+                    the cash book.
+                  </p>
+                </div>
               </div>
             )}
 
