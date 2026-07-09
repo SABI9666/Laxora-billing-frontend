@@ -13,6 +13,7 @@ type Line = {
   rate: string;
   taxRate: string;
   amount: string;
+  item?: { hsn?: string | null; unit?: string | null } | null;
 };
 type Invoice = {
   id: string;
@@ -57,12 +58,22 @@ export default function InvoicePrintPage() {
   if (!invoice || !business)
     return <div className="p-8 text-gray-400">Loading invoice…</div>;
 
-  const total = Number(invoice.total);
+  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
   const tax = Number(invoice.taxAmount);
   const paid = Number(invoice.amountPaid);
+  const exactTotal = Number(invoice.total);
+  // Round the bill to the nearest rupee like a standard GST tax invoice.
+  const total = Math.round(exactTotal);
+  const roundOff = round2(total - exactTotal);
   const balance = total - paid;
   // Intra-state GST is split equally into CGST + SGST.
   const halfTax = tax / 2;
+  const totalQty = invoice.items.reduce((s, l) => s + Number(l.quantity), 0);
+  // If every line has the same GST rate, show the CGST/SGST percentage.
+  const rateSet = new Set(invoice.items.map((l) => Number(l.taxRate)));
+  const halfRate = rateSet.size === 1 ? [...rateSet][0] / 2 : null;
+  const cgstLabel = halfRate != null ? `CGST @ ${halfRate}%` : "CGST";
+  const sgstLabel = halfRate != null ? `SGST @ ${halfRate}%` : "SGST";
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -135,38 +146,64 @@ export default function InvoicePrintPage() {
           </div>
         </div>
 
-        {/* Items table */}
-        <table className="mt-3 w-full border-collapse">
+        {/* Items table — GST tax-invoice layout */}
+        <table className="mt-3 w-full border-collapse text-[11px]">
           <thead>
-            <tr className="border-b-2 border-gray-800 text-left text-xs uppercase">
-              <th className="py-2 pr-2">#</th>
-              <th className="py-2 pr-2">Item Description</th>
+            <tr className="border-b-2 border-gray-800 text-left uppercase">
+              <th className="py-2 pr-1">#</th>
+              <th className="py-2 pr-2">Description of Goods</th>
+              <th className="py-2 pr-2">HSN/SAC</th>
+              <th className="py-2 pr-2 text-center">GST</th>
               <th className="py-2 pr-2 text-right">Qty</th>
+              <th className="py-2 pr-2 text-right">
+                Rate<br />
+                <span className="font-normal normal-case">(Incl. Tax)</span>
+              </th>
               <th className="py-2 pr-2 text-right">Rate</th>
-              <th className="py-2 pr-2 text-right">GST %</th>
+              <th className="py-2 pr-1">per</th>
               <th className="py-2 text-right">Amount</th>
             </tr>
           </thead>
           <tbody>
-            {invoice.items.map((l, i) => (
-              <tr key={l.id} className="border-b border-gray-200">
-                <td className="py-1.5 pr-2">{i + 1}</td>
-                <td className="py-1.5 pr-2 font-medium">{l.description}</td>
-                <td className="py-1.5 pr-2 text-right">{Number(l.quantity)}</td>
-                <td className="py-1.5 pr-2 text-right">{formatMoney(l.rate)}</td>
-                <td className="py-1.5 pr-2 text-right">{Number(l.taxRate)}%</td>
-                <td className="py-1.5 text-right">{formatMoney(l.amount)}</td>
-              </tr>
-            ))}
+            {invoice.items.map((l, i) => {
+              const exRate = Number(l.rate);
+              const gst = Number(l.taxRate);
+              const inclRate = round2(exRate * (1 + gst / 100));
+              const unit = l.item?.unit || "NOS";
+              return (
+                <tr key={l.id} className="border-b border-gray-200 align-top">
+                  <td className="py-1.5 pr-1">{i + 1}</td>
+                  <td className="py-1.5 pr-2 font-medium">{l.description}</td>
+                  <td className="py-1.5 pr-2">{l.item?.hsn || "—"}</td>
+                  <td className="py-1.5 pr-2 text-center">{gst}%</td>
+                  <td className="py-1.5 pr-2 text-right">
+                    {Number(l.quantity)} {unit}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right">{formatMoney(inclRate)}</td>
+                  <td className="py-1.5 pr-2 text-right">{formatMoney(exRate)}</td>
+                  <td className="py-1.5 pr-1">{unit}</td>
+                  <td className="py-1.5 text-right">{formatMoney(l.amount)}</td>
+                </tr>
+              );
+            })}
+            {/* Totals row: total quantity + taxable value */}
+            <tr className="border-t-2 border-gray-800 font-bold">
+              <td className="py-1.5" colSpan={4}>
+                Total
+              </td>
+              <td className="py-1.5 text-right">{round2(totalQty)} NOS</td>
+              <td colSpan={3} />
+              <td className="py-1.5 text-right">{formatMoney(invoice.subtotal)}</td>
+            </tr>
           </tbody>
         </table>
 
         {/* Totals */}
         <div className="mt-3 flex justify-end">
-          <table className="w-64 text-sm">
+          <table className="w-72 text-sm">
             <tbody>
               <tr>
-                <td className="py-0.5 text-gray-500">Subtotal</td>
+                <td className="py-0.5 text-gray-500">Taxable Value</td>
                 <td className="py-0.5 text-right">{formatMoney(invoice.subtotal)}</td>
               </tr>
               {Number(invoice.discount) > 0 && (
@@ -178,14 +215,22 @@ export default function InvoicePrintPage() {
               {tax > 0 && (
                 <>
                   <tr>
-                    <td className="py-0.5 text-gray-500">CGST</td>
+                    <td className="py-0.5 text-gray-500">{cgstLabel}</td>
                     <td className="py-0.5 text-right">{formatMoney(halfTax)}</td>
                   </tr>
                   <tr>
-                    <td className="py-0.5 text-gray-500">SGST</td>
+                    <td className="py-0.5 text-gray-500">{sgstLabel}</td>
                     <td className="py-0.5 text-right">{formatMoney(halfTax)}</td>
                   </tr>
                 </>
+              )}
+              {Math.abs(roundOff) >= 0.005 && (
+                <tr>
+                  <td className="py-0.5 text-gray-500">Round Off</td>
+                  <td className="py-0.5 text-right">
+                    {roundOff > 0 ? "+" : "−"} {formatMoney(Math.abs(roundOff))}
+                  </td>
+                </tr>
               )}
               <tr className="border-t-2 border-gray-800 text-base font-extrabold">
                 <td className="py-1.5">Grand Total</td>
