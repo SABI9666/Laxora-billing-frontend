@@ -9,7 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ItemPicker from "@/components/ItemPicker";
 
-type Party = { id: string; name: string; type: string };
+type Party = { id: string; name: string; type: string; phone?: string | null; email?: string | null };
 type Item = {
   id: string;
   name: string;
@@ -66,9 +66,19 @@ export default function NewInvoicePage() {
   const [showNewParty, setShowNewParty] = useState(false);
   const [newParty, setNewParty] = useState({ name: "", phone: "", email: "" });
   const [savingParty, setSavingParty] = useState(false);
+  // A same-name party the backend found — ask before creating a duplicate.
+  const [dupParty, setDupParty] = useState<Party | null>(null);
 
-  async function createParty(e: React.FormEvent) {
-    e.preventDefault();
+  function useExistingParty(p: Party) {
+    setParties((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]));
+    setPartyId(p.id);
+    setShowNewParty(false);
+    setDupParty(null);
+    setNewParty({ name: "", phone: "", email: "" });
+  }
+
+  async function createParty(e?: React.FormEvent, force = false) {
+    e?.preventDefault();
     setSavingParty(true);
     try {
       const r = await api<{ party: Party }>("/api/parties", {
@@ -78,15 +88,17 @@ export default function NewInvoicePage() {
           phone: newParty.phone || undefined,
           email: newParty.email || undefined,
           type: partyType,
+          force,
         },
       });
-      // Add to the list and select it immediately.
-      setParties((prev) => [...prev, r.party]);
-      setPartyId(r.party.id);
-      setShowNewParty(false);
-      setNewParty({ name: "", phone: "", email: "" });
+      useExistingParty(r.party); // add + select + close
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to add customer");
+      if (err instanceof ApiError && err.status === 409) {
+        const ex = (err.details as { existing?: Party } | undefined)?.existing ?? null;
+        setDupParty(ex);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Failed to add customer");
+      }
     } finally {
       setSavingParty(false);
     }
@@ -643,11 +655,48 @@ export default function NewInvoicePage() {
               <input
                 className="input"
                 value={newParty.name}
-                onChange={(e) => setNewParty({ ...newParty, name: e.target.value })}
+                onChange={(e) => {
+                  setNewParty({ ...newParty, name: e.target.value });
+                  setDupParty(null);
+                }}
                 required
                 autoFocus
               />
             </div>
+
+            {dupParty && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                <p className="font-semibold text-amber-800">
+                  “{dupParty.name}” already exists.
+                </p>
+                {(dupParty.phone || dupParty.email) && (
+                  <p className="text-xs text-amber-700">
+                    {[dupParty.phone, dupParty.email].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-amber-700">
+                  Is it the same {partyLabel}? Use them, or change the name above to add a
+                  different one.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+                    onClick={() => useExistingParty(dupParty)}
+                  >
+                    ✓ Use “{dupParty.name}”
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-800"
+                    onClick={() => createParty(undefined, true)}
+                    disabled={savingParty}
+                  >
+                    Add as a new {partyLabel} anyway
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Phone</label>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -34,6 +34,8 @@ export default function PartiesPage() {
   const [editing, setEditing] = useState<Party | null>(null);
   const [form, setForm] = useState<any>(empty);
   const [saving, setSaving] = useState(false);
+  // A same-name party the backend found on create.
+  const [dup, setDup] = useState<Party | null>(null);
 
   async function load() {
     const r = await api<{ parties: Party[] }>("/api/parties");
@@ -46,19 +48,21 @@ export default function PartiesPage() {
   function openNew() {
     setEditing(null);
     setForm(empty);
+    setDup(null);
     setOpen(true);
   }
   function openEdit(p: Party) {
     setEditing(p);
     setForm({ ...p, openingBalance: Number(p.openingBalance) });
+    setDup(null);
     setOpen(true);
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function save(e?: React.FormEvent, force = false) {
+    e?.preventDefault();
     setSaving(true);
     try {
-      const body = { ...form, openingBalance: Number(form.openingBalance) };
+      const body = { ...form, openingBalance: Number(form.openingBalance), force };
       if (editing) {
         await api(`/api/parties/${editing.id}`, { method: "PUT", body });
       } else {
@@ -66,6 +70,12 @@ export default function PartiesPage() {
       }
       setOpen(false);
       await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setDup((err.details as { existing?: Party } | undefined)?.existing ?? null);
+      } else {
+        throw err;
+      }
     } finally {
       setSaving(false);
     }
@@ -153,8 +163,38 @@ export default function PartiesPage() {
           <form onSubmit={save} className="space-y-4">
             <div>
               <label className="label">Name</label>
-              <input className="input" value={form.name} onChange={set("name")} required />
+              <input
+                className="input"
+                value={form.name}
+                onChange={(e) => {
+                  set("name")(e);
+                  setDup(null);
+                }}
+                required
+              />
             </div>
+
+            {!editing && dup && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                <p className="font-semibold text-amber-800">“{dup.name}” already exists.</p>
+                {(dup.phone || dup.email) && (
+                  <p className="text-xs text-amber-700">
+                    {[dup.phone, dup.email].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-amber-700">
+                  Change the name above to add a different one, or add anyway.
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-800"
+                  onClick={() => save(undefined, true)}
+                  disabled={saving}
+                >
+                  Add anyway
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Type</label>
