@@ -13,6 +13,8 @@ type Party = { id: string; name: string; type: string; phone?: string | null; em
 type Item = {
   id: string;
   name: string;
+  sku?: string | null;
+  unit?: string | null;
   salePrice: string;
   purchasePrice: string;
   taxRate: string;
@@ -344,7 +346,15 @@ export default function NewInvoicePage() {
                     <td className="table-td">
                       <div className="mb-1">
                         <ItemPicker
-                          items={items.map((it) => ({ id: it.id, name: it.name }))}
+                          items={items.map((it) => ({
+                            id: it.id,
+                            name: it.name,
+                            sku: it.sku,
+                            unit: it.unit,
+                            price: Number(type === "SALE" ? it.salePrice : it.purchasePrice),
+                            stock: it.isService ? null : Number(it.stockQty),
+                            low: !it.isService && Number(it.stockQty) <= 0,
+                          }))}
                           value={l.itemId}
                           onSelect={(id) => pickItem(i, id)}
                         />
