@@ -130,6 +130,25 @@ export default function NewInvoicePage() {
   const netRate = (l: Line) => round2(l.rate / (taxInclusive ? 1 + l.taxRate / 100 : 1));
   const lineAmount = (l: Line) => round2(l.quantity * netRate(l));
 
+  // Ex-GST cost of an item (purchase price is entered GST-inclusive). Used only
+  // to show the biller a live profit hint — this never appears on the bill.
+  function itemCostEx(itemId: string): number | null {
+    const it = items.find((x) => x.id === itemId);
+    if (!it) return null;
+    const pp = Number(it.purchasePrice);
+    if (!pp) return null;
+    return pp / (1 + Number(it.taxRate) / 100);
+  }
+  const estProfit =
+    type === "SALE"
+      ? round2(
+          lines.reduce((s, l) => {
+            const cost = l.itemId ? itemCostEx(l.itemId) : null;
+            return cost == null ? s : s + (netRate(l) - cost) * l.quantity;
+          }, 0)
+        )
+      : null;
+
   const subtotal = round2(lines.reduce((s, l) => s + lineAmount(l), 0));
   const taxAmount = round2(
     lines.reduce((s, l) => s + (lineAmount(l) * l.taxRate) / 100, 0)
@@ -324,6 +343,27 @@ export default function NewInvoicePage() {
                         value={l.description}
                         onChange={(e) => updateLine(i, { description: e.target.value })}
                       />
+                      {type === "SALE" &&
+                        l.itemId &&
+                        (() => {
+                          const cost = itemCostEx(l.itemId);
+                          if (cost == null) return null;
+                          const m = round2(netRate(l) - cost);
+                          const pct = cost > 0 ? Math.round((m / cost) * 100) : null;
+                          return (
+                            <p
+                              className={`mt-1 text-xs font-semibold ${
+                                m > 0 ? "text-green-600" : m < 0 ? "text-red-600" : "text-gray-400"
+                              }`}
+                            >
+                              {m > 0
+                                ? `▲ Profit ${formatMoney(m)}/pc${pct != null ? ` · ${pct}%` : ""}`
+                                : m < 0
+                                ? `▼ Below cost ${formatMoney(Math.abs(m))}/pc`
+                                : "• At cost"}
+                            </p>
+                          );
+                        })()}
                     </td>
                     <td className="table-td">
                       <input
@@ -465,6 +505,14 @@ export default function NewInvoicePage() {
               <span className="text-gray-500">Tax</span>
               <span>{formatMoney(taxAmount)}</span>
             </div>
+            {type === "SALE" && estProfit !== null && (
+              <div className="flex justify-between rounded-lg bg-slate-50 px-2 py-1 text-sm">
+                <span className="text-gray-500">Est. profit 🔒 <span className="text-xs">(not on bill)</span></span>
+                <span className={`font-bold ${estProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {formatMoney(estProfit)}
+                </span>
+              </div>
+            )}
             <div className="mt-2 flex justify-between border-t border-gray-200 pt-2 text-lg font-bold">
               <span>Total</span>
               <span>{formatMoney(total)}</span>
