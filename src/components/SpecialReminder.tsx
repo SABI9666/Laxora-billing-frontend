@@ -7,8 +7,12 @@
 // Supabase's auto-generated REST API using the public anon key, so no change
 // to the Laxora backend is needed. An active notice pops up once per session
 // and stays pinned as a banner until Super Admin deletes (or pauses) it.
+//
+// A notice can target a single shop (by name) or every shop. When it targets
+// a shop, we only show it if that matches the shop the user is currently in.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, getBusinessId } from "@/lib/api";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -21,16 +25,21 @@ type SpecialReminder = {
   title: string | null;
   message: string;
   level: "info" | "warning" | "urgent" | string;
+  target_shop: string | null;
   active: boolean | null;
   created_at: string;
+};
+
+type Membership = {
+  business: { id: string; name: string; code?: string | null };
 };
 
 type LevelStyle = {
   icon: string;
   label: string;
-  banner: string; // banner background + text
-  accent: string; // popup icon circle
-  button: string; // popup dismiss button
+  banner: string;
+  accent: string;
+  button: string;
 };
 
 const LEVELS: Record<string, LevelStyle> = {
@@ -78,9 +87,52 @@ function setAcked(ids: Set<string>) {
   }
 }
 
+// Forgiving shop-name comparison: case-insensitive, whitespace-collapsed,
+// and matches when either name contains the other (so "Pradeeksha
+// Technologies" set in Super Admin still matches "Pradeeksha Technologies
+// Shop" in Laxora, and vice-versa).
+function norm(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+function shopMatches(target: string, mine: string[]): boolean {
+  const t = norm(target);
+  if (!t) return true;
+  return mine.some((m) => {
+    const n = norm(m);
+    return n.length > 0 && (n === t || n.includes(t) || t.includes(n));
+  });
+}
+
 export default function SpecialReminder() {
   const [items, setItems] = useState<SpecialReminder[]>([]);
   const [popup, setPopup] = useState<SpecialReminder | null>(null);
+  // Names of the shop the user is currently in (name + code). null = not
+  // resolved yet — we hold shop-targeted notices until we know the shop.
+  const [myShop, setMyShop] = useState<string[] | null>(null);
+
+  // Resolve the current shop once.
+  useEffect(() => {
+    let cancelled = false;
+    api<{ user: { memberships: Membership[] } }>("/api/auth/me")
+      .then((r) => {
+        if (cancelled) return;
+        const ms = r.user?.memberships || [];
+        const activeId = getBusinessId();
+        const active =
+          ms.find((m) => m.business.id === activeId)?.business ??
+          ms[0]?.business;
+        const names: string[] = [];
+        if (active?.name) names.push(active.name);
+        if (active?.code) names.push(active.code);
+        setMyShop(names);
+      })
+      .catch(() => {
+        if (!cancelled) setMyShop([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchReminders = useCallback(async () => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return; // feature not configured
@@ -97,15 +149,9 @@ export default function SpecialReminder() {
       );
       if (!res.ok) return;
       const data: SpecialReminder[] = await res.json();
-      const active = Array.isArray(data)
-        ? data.filter((d) => d.active !== false)
-        : [];
-      setItems(active);
-
-      // Pop up the newest notice that hasn't been acknowledged this session.
-      const acked = getAcked();
-      const fresh = active.find((d) => !acked.has(d.id));
-      setPopup((cur) => cur ?? fresh ?? null);
+      setItems(
+        Array.isArray(data) ? data.filter((d) => d.active !== false) : []
+      );
     } catch {
       /* network hiccup — keep whatever we have */
     }
@@ -117,6 +163,24 @@ export default function SpecialReminder() {
     return () => clearInterval(t);
   }, [fetchReminders]);
 
+  // Notices this shop should actually see.
+  const visible = useMemo(() => {
+    return items.filter((r) => {
+      const target = (r.target_shop || "").trim();
+      if (!target) return true; // all-shops notice
+      if (myShop === null) return false; // shop unknown yet — hold it
+      return shopMatches(target, myShop);
+    });
+  }, [items, myShop]);
+
+  // Pop up the newest visible notice not yet acknowledged this session.
+  useEffect(() => {
+    if (popup) return;
+    const acked = getAcked();
+    const fresh = visible.find((d) => !acked.has(d.id));
+    if (fresh) setPopup(fresh);
+  }, [visible, popup]);
+
   const dismissPopup = () => {
     if (popup) {
       const acked = getAcked();
@@ -127,13 +191,13 @@ export default function SpecialReminder() {
   };
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
-  if (items.length === 0) return null;
+  if (visible.length === 0) return null;
 
   return (
     <>
       {/* Persistent banner(s) — stay until Super Admin removes the notice */}
       <div className="sticky top-0 z-40 flex flex-col gap-px">
-        {items.map((r) => {
+        {visible.map((r) => {
           const s = levelStyle(r.level);
           return (
             <div
@@ -143,11 +207,9 @@ export default function SpecialReminder() {
             >
               <span className="text-base leading-none">{s.icon}</span>
               <span className="min-w-0 flex-1">
-                {r.title ? (
-                  <span className="font-semibold">{r.title}: </span>
-                ) : (
-                  <span className="font-semibold">{s.label}: </span>
-                )}
+                <span className="font-semibold">
+                  {r.title || s.label}:{" "}
+                </span>
                 <span className="opacity-95">{r.message}</span>
               </span>
             </div>
