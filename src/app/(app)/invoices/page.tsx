@@ -16,6 +16,7 @@ type Invoice = {
   amountPaid: string;
   invoiceDate: string;
   party: { name: string };
+  profit?: number | null;
 };
 type Line = {
   id: string;
@@ -98,6 +99,20 @@ export default function InvoicesPage() {
     }
   }
 
+  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const sum = invoices.reduce(
+    (acc, inv) => {
+      const total = Number(inv.total);
+      const paid = Number(inv.amountPaid);
+      acc.total += total;
+      acc.paid += paid;
+      acc.due += Math.max(0, total - paid);
+      if (inv.type === "SALE" && inv.profit != null) acc.profit += inv.profit;
+      return acc;
+    },
+    { total: 0, paid: 0, due: 0, profit: 0 }
+  );
+
   return (
     <div>
       <PageHeader
@@ -117,6 +132,35 @@ export default function InvoicesPage() {
           </button>
         </div>
       )}
+
+      {/* Summary strip */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="card py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            {type === "PURCHASE" ? "Purchases" : "Billed"}
+          </p>
+          <p className="mt-0.5 text-xl font-bold">{formatMoney(sum.total)}</p>
+          <p className="text-xs text-slate-400">{invoices.length} bills</p>
+        </div>
+        <div className="card py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Received</p>
+          <p className="mt-0.5 text-xl font-bold text-emerald-600">{formatMoney(sum.paid)}</p>
+        </div>
+        <div className="card py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Pending</p>
+          <p className={`mt-0.5 text-xl font-bold ${sum.due > 0 ? "text-rose-600" : "text-slate-500"}`}>
+            {formatMoney(sum.due)}
+          </p>
+        </div>
+        <div className="card py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            Profit 🔒 <span className="normal-case">(sales)</span>
+          </p>
+          <p className={`mt-0.5 text-xl font-bold ${sum.profit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+            {formatMoney(sum.profit)}
+          </p>
+        </div>
+      </div>
 
       <div className="mb-4 flex gap-2">
         {[
@@ -139,60 +183,98 @@ export default function InvoicesPage() {
       <div className="card p-0">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="table-th">Number</th>
-                <th className="table-th">Type</th>
+                <th className="table-th">Bill</th>
                 <th className="table-th">Party</th>
                 <th className="table-th">Date</th>
                 <th className="table-th">Status</th>
-                <th className="table-th text-right">Total</th>
+                <th className="table-th text-right">Amount</th>
                 <th className="table-th text-right">Due</th>
                 <th className="table-th"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {invoices.map((inv) => (
-                <tr key={inv.id}>
-                  <td className="table-td font-medium">{inv.invoiceNumber}</td>
-                  <td className="table-td">{inv.type}</td>
-                  <td className="table-td">{inv.party?.name}</td>
-                  <td className="table-td">{formatDate(inv.invoiceDate)}</td>
-                  <td className="table-td">{inv.status}</td>
-                  <td className="table-td text-right">{formatMoney(inv.total)}</td>
-                  <td className="table-td text-right">
-                    {formatMoney(Number(inv.total) - Number(inv.amountPaid))}
-                  </td>
-                  <td className="table-td text-right">
-                    <Link
-                      href={`/invoices/${inv.id}/print`}
-                      className="mr-3 text-brand hover:underline"
-                    >
-                      PDF
-                    </Link>
-                    <Link
-                      href={`/invoices/${inv.id}/edit`}
-                      className="mr-3 text-brand hover:underline"
-                    >
-                      Edit
-                    </Link>
-                    {inv.type === "SALE" && (
-                      <button
-                        onClick={() => openReturn(inv)}
+            <tbody className="divide-y divide-slate-100">
+              {invoices.map((inv) => {
+                const due = round2(Number(inv.total) - Number(inv.amountPaid));
+                const profit = inv.profit;
+                return (
+                  <tr key={inv.id} className="transition hover:bg-slate-50/70">
+                    <td className="table-td">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                            inv.type === "PURCHASE"
+                              ? "bg-amber-50 text-amber-600"
+                              : "bg-indigo-50 text-brand-700"
+                          }`}
+                          title={inv.type}
+                        >
+                          {inv.type === "PURCHASE" ? "P" : "S"}
+                        </span>
+                        <span className="font-semibold text-slate-800">{inv.invoiceNumber}</span>
+                      </div>
+                    </td>
+                    <td className="table-td text-slate-700">{inv.party?.name}</td>
+                    <td className="table-td text-slate-500">{formatDate(inv.invoiceDate)}</td>
+                    <td className="table-td">
+                      <StatusPill status={inv.status} />
+                    </td>
+                    <td className="table-td text-right">
+                      <div className="font-semibold text-slate-900">{formatMoney(inv.total)}</div>
+                      {inv.type === "SALE" && profit != null && (
+                        <div
+                          className={`text-xs font-semibold ${
+                            profit > 0 ? "text-emerald-600" : profit < 0 ? "text-rose-600" : "text-slate-400"
+                          }`}
+                        >
+                          {profit > 0 ? "▲" : profit < 0 ? "▼" : "•"} {formatMoney(Math.abs(profit))}{" "}
+                          {profit >= 0 ? "profit" : "loss"}
+                        </div>
+                      )}
+                    </td>
+                    <td className="table-td text-right">
+                      {due > 0.009 ? (
+                        <span className="font-semibold text-rose-600">{formatMoney(due)}</span>
+                      ) : due < -0.009 ? (
+                        <span className="text-xs font-semibold text-emerald-600">
+                          {formatMoney(Math.abs(due))} advance
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="table-td text-right">
+                      <Link
+                        href={`/invoices/${inv.id}/print`}
                         className="mr-3 text-brand hover:underline"
                       >
-                        Return
+                        PDF
+                      </Link>
+                      <Link
+                        href={`/invoices/${inv.id}/edit`}
+                        className="mr-3 text-brand hover:underline"
+                      >
+                        Edit
+                      </Link>
+                      {inv.type === "SALE" && (
+                        <button
+                          onClick={() => openReturn(inv)}
+                          className="mr-3 text-brand hover:underline"
+                        >
+                          Return
+                        </button>
+                      )}
+                      <button onClick={() => remove(inv)} className="text-red-600 hover:underline">
+                        Delete
                       </button>
-                    )}
-                    <button onClick={() => remove(inv)} className="text-red-600 hover:underline">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
               {invoices.length === 0 && (
                 <tr>
-                  <td className="table-td text-gray-400" colSpan={8}>
+                  <td className="table-td text-gray-400" colSpan={7}>
                     No invoices yet.
                   </td>
                 </tr>
@@ -264,5 +346,28 @@ export default function InvoicesPage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    PAID: "bg-emerald-50 text-emerald-700",
+    PARTIAL: "bg-amber-50 text-amber-700",
+    UNPAID: "bg-rose-50 text-rose-700",
+  };
+  const dot: Record<string, string> = {
+    PAID: "bg-emerald-500",
+    PARTIAL: "bg-amber-500",
+    UNPAID: "bg-rose-500",
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+        styles[status] || "bg-slate-100 text-slate-600"
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${dot[status] || "bg-slate-400"}`} />
+      {status}
+    </span>
   );
 }
