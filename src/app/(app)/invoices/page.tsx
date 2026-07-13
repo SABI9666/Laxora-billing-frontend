@@ -28,6 +28,7 @@ type Line = {
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [type, setType] = useState<"" | "SALE" | "PURCHASE">("");
+  const [search, setSearch] = useState("");
 
   // Return modal state
   const [returnInv, setReturnInv] = useState<Invoice | null>(null);
@@ -100,6 +101,15 @@ export default function InvoicesPage() {
   }
 
   const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  // Live client-side search by customer/supplier name or bill number.
+  const term = search.trim().toLowerCase();
+  const visible = term
+    ? invoices.filter(
+        (inv) =>
+          inv.party?.name?.toLowerCase().includes(term) ||
+          inv.invoiceNumber.toLowerCase().includes(term)
+      )
+    : invoices;
   const sum = invoices.reduce(
     (acc, inv) => {
       const total = Number(inv.total);
@@ -162,22 +172,44 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex gap-2">
-        {[
-          { v: "", label: "All" },
-          { v: "SALE", label: "Sales" },
-          { v: "PURCHASE", label: "Purchases" },
-        ].map((t) => (
-          <button
-            key={t.v}
-            onClick={() => setType(t.v as any)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-              type === t.v ? "bg-brand text-white" : "bg-white border border-gray-300 text-gray-600"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2">
+          {[
+            { v: "", label: "All" },
+            { v: "SALE", label: "Sales" },
+            { v: "PURCHASE", label: "Purchases" },
+          ].map((t) => (
+            <button
+              key={t.v}
+              onClick={() => setType(t.v as any)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                type === t.v ? "bg-brand text-white" : "bg-white border border-gray-300 text-gray-600"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full sm:w-80">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+            🔍
+          </span>
+          <input
+            className="input pl-9 pr-8"
+            placeholder="Search by customer name or bill no…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              title="Clear"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="card p-0">
@@ -195,7 +227,7 @@ export default function InvoicesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {invoices.map((inv) => {
+              {visible.map((inv) => {
                 const due = round2(Number(inv.total) - Number(inv.amountPaid));
                 const profit = inv.profit;
                 return (
@@ -272,10 +304,12 @@ export default function InvoicesPage() {
                   </tr>
                 );
               })}
-              {invoices.length === 0 && (
+              {visible.length === 0 && (
                 <tr>
                   <td className="table-td text-gray-400" colSpan={7}>
-                    No invoices yet.
+                    {invoices.length === 0
+                      ? "No invoices yet."
+                      : `No bills match “${search}”.`}
                   </td>
                 </tr>
               )}
