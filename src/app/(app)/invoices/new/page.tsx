@@ -29,6 +29,15 @@ type Line = {
   taxRate: number;
 };
 
+type HistoryRow = {
+  party: string;
+  rate: number;
+  taxRate: number;
+  quantity: number;
+  invoiceNumber: string;
+  date: string;
+};
+
 const blankLine: Line = { itemId: "", description: "", quantity: 1, rate: 0, taxRate: 0 };
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -50,6 +59,8 @@ export default function NewInvoicePage() {
   const [lines, setLines] = useState<Line[]>([{ ...blankLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Cache of "price given before" per item (keyed by itemId).
+  const [history, setHistory] = useState<Record<string, HistoryRow[]>>({});
   // Payment at billing time.
   const [payStatus, setPayStatus] = useState<"UNPAID" | "PAID" | "PARTIAL">("UNPAID");
   const [partAmount, setPartAmount] = useState(0);
@@ -128,6 +139,13 @@ export default function NewInvoicePage() {
       rate: Number(type === "SALE" ? it.salePrice : it.purchasePrice),
       taxRate: Number(it.taxRate),
     });
+    // Fetch what we last charged each customer for this product.
+    if (type === "SALE" && history[itemId] === undefined) {
+      setHistory((h) => ({ ...h, [itemId]: [] }));
+      api<{ history: HistoryRow[] }>(`/api/items/${itemId}/price-history`)
+        .then((r) => setHistory((h) => ({ ...h, [itemId]: r.history })))
+        .catch(() => {});
+    }
   }
 
   // Available stock for a SALE line: null = no limit (purchase / service /
@@ -386,6 +404,35 @@ export default function NewInvoicePage() {
                             </p>
                           );
                         })()}
+                      {type === "SALE" &&
+                        l.itemId &&
+                        (history[l.itemId]?.length ?? 0) > 0 && (
+                          <div className="mt-1">
+                            <p className="text-[11px] font-medium text-slate-400">
+                              Given before (tap a name to use that price):
+                            </p>
+                            <div className="mt-0.5 flex flex-wrap gap-1">
+                              {history[l.itemId].slice(0, 6).map((h, k) => (
+                                <button
+                                  type="button"
+                                  key={k}
+                                  onClick={() => updateLine(i, { rate: h.rate })}
+                                  title={`${h.invoiceNumber} · ${new Date(
+                                    h.date
+                                  ).toLocaleDateString("en-IN")}${
+                                    h.taxRate > 0
+                                      ? ` · ${formatMoney(round2(h.rate * (1 + h.taxRate / 100)))} incl GST`
+                                      : ""
+                                  }`}
+                                  className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 transition hover:border-brand hover:bg-brand-light"
+                                >
+                                  <span className="font-semibold text-slate-800">{h.party}</span> ·{" "}
+                                  {formatMoney(h.rate)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                     </td>
                     <td className="table-td">
                       <input
