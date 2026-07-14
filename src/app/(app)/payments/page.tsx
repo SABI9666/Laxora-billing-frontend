@@ -29,6 +29,13 @@ const OUT_PURPOSES = [
   "Bank Withdrawal",
   "Other",
 ];
+// Credit-voucher (money in) purposes. "Customer Receipt" settles a customer's
+// bill; "Service Income" / "Other Income" are direct earnings (e.g. LED
+// service) with no customer bill — they still hit the cash book and count as
+// profit.
+const IN_PURPOSES = ["Customer Receipt", "Service Income", "Other Income"];
+// Credit-voucher purposes that are standalone income (no party / bill needed).
+const IN_INCOME_PURPOSES = ["Service Income", "Other Income"];
 const empty = {
   partyId: "",
   invoiceId: "",
@@ -91,7 +98,11 @@ export default function PaymentsPage() {
 
   // Whether the current voucher needs a party / a linked bill.
   const isSupplierPay = !isCredit && form.purpose === "Supplier Payment";
-  const needsParty = isCredit || isSupplierPay;
+  // A credit voucher needs a customer only when it settles their bill; direct
+  // service / other income has no party.
+  const isCustomerReceipt = isCredit && form.purpose === "Customer Receipt";
+  const isServiceIncome = isCredit && IN_INCOME_PURPOSES.includes(form.purpose);
+  const needsParty = isCustomerReceipt || isSupplierPay;
   const isTransfer = form.purpose === "Bank Deposit" || form.purpose === "Bank Withdrawal";
 
   const splitOn = form.split && !isTransfer;
@@ -175,9 +186,10 @@ export default function PaymentsPage() {
       />
 
       <p className="mb-4 text-sm text-gray-500">
-        <b>Credit voucher</b> = money received (from a customer, cash or bank).{" "}
-        <b>Payment voucher</b> = money given (to a supplier). Both update the cash book and
-        the linked bill automatically.
+        <b>Credit voucher</b> = money received — a customer receipt, or direct{" "}
+        <b>service / other income</b> (e.g. LED service). <b>Payment voucher</b> = money
+        given (to a supplier). All update the cash book automatically, and service income
+        also adds to your profit.
       </p>
 
       <div className="mb-4 flex flex-wrap gap-3">
@@ -264,30 +276,34 @@ export default function PaymentsPage() {
           <form onSubmit={save} className="space-y-4">
             {error && <div className="text-sm text-red-600">{error}</div>}
 
-            {/* Payment vouchers: choose what it's for */}
-            {!isCredit && (
-              <div>
-                <label className="label">Purpose</label>
-                <select
-                  className="input"
-                  value={form.purpose}
-                  onChange={(e) => setForm({ ...form, purpose: e.target.value, partyId: "", invoiceId: "" })}
-                >
-                  {OUT_PURPOSES.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-                {isTransfer && (
-                  <p className="mt-1 text-xs text-gray-400">
-                    {form.purpose === "Bank Deposit"
-                      ? "Moves money from shop cash into the bank."
-                      : "Moves money from the bank into shop cash."}
-                  </p>
-                )}
-              </div>
-            )}
+            {/* Choose what the voucher is for */}
+            <div>
+              <label className="label">Purpose</label>
+              <select
+                className="input"
+                value={form.purpose}
+                onChange={(e) => setForm({ ...form, purpose: e.target.value, partyId: "", invoiceId: "" })}
+              >
+                {(isCredit ? IN_PURPOSES : OUT_PURPOSES).map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              {isTransfer && (
+                <p className="mt-1 text-xs text-gray-400">
+                  {form.purpose === "Bank Deposit"
+                    ? "Moves money from shop cash into the bank."
+                    : "Moves money from the bank into shop cash."}
+                </p>
+              )}
+              {isServiceIncome && (
+                <p className="mt-1 text-xs text-gray-400">
+                  Direct income (e.g. LED service) — no customer bill needed. It
+                  shows in the cash book and adds to your profit.
+                </p>
+              )}
+            </div>
 
             {needsParty && (
               <div>
