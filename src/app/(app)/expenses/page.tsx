@@ -43,6 +43,9 @@ export default function ExpensesPage() {
     invoiceId: "",
     method: "CASH",
   });
+  // When set, we're editing this charge (id + its original date to preserve).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDate, setEditingDate] = useState<string | null>(null);
 
   // Return-mode state: the selected bill's items + how many to return.
   const [billItems, setBillItems] = useState<BillItem[]>([]);
@@ -82,6 +85,24 @@ export default function ExpensesPage() {
 
   function openNew() {
     setForm({ category: "Commission", amount: 0, note: "", invoiceId: "", method: "CASH" });
+    setEditingId(null);
+    setEditingDate(null);
+    setBillItems([]);
+    setRetQty({});
+    setError("");
+    setOpen(true);
+  }
+
+  function openEdit(x: Expense) {
+    setForm({
+      category: x.category,
+      amount: Number(x.amount),
+      note: x.note || "",
+      invoiceId: x.invoiceId || "",
+      method: x.method || "CASH",
+    });
+    setEditingId(x.id);
+    setEditingDate(x.date);
     setBillItems([]);
     setRetQty({});
     setError("");
@@ -105,6 +126,8 @@ export default function ExpensesPage() {
           body: { items, reason: form.note || undefined },
         });
       } else {
+        // Save the (edited) charge. For an edit we create the updated one with
+        // the original date, then remove the old record.
         await api("/api/expenses", {
           method: "POST",
           body: {
@@ -113,8 +136,12 @@ export default function ExpensesPage() {
             note: form.note || undefined,
             invoiceId: form.invoiceId || undefined,
             method: form.method || undefined,
+            date: editingId ? editingDate ?? undefined : undefined,
           },
         });
+        if (editingId) {
+          await api(`/api/expenses/${editingId}`, { method: "DELETE" });
+        }
       }
       setOpen(false);
       await load();
@@ -183,6 +210,12 @@ export default function ExpensesPage() {
                   {formatMoney(x.amount)}
                 </td>
                 <td className="table-td text-right">
+                  <button
+                    onClick={() => openEdit(x)}
+                    className="mr-3 text-brand hover:underline"
+                  >
+                    Edit
+                  </button>
                   <button onClick={() => remove(x)} className="text-red-600 hover:underline">
                     Delete
                   </button>
@@ -201,7 +234,10 @@ export default function ExpensesPage() {
       </div>
 
       {open && (
-        <Modal title="Record a Charge" onClose={() => setOpen(false)}>
+        <Modal
+          title={editingId ? "Edit Charge" : "Record a Charge"}
+          onClose={() => setOpen(false)}
+        >
           <form onSubmit={save} className="space-y-4">
             {error && <div className="text-sm text-red-600">{error}</div>}
             <div>
@@ -211,11 +247,14 @@ export default function ExpensesPage() {
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
               >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
+                {CATEGORIES
+                  // Can't turn an existing charge into a material return.
+                  .filter((c) => !editingId || c !== RETURN)
+                  .map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
               </select>
             </div>
 
@@ -323,7 +362,13 @@ export default function ExpensesPage() {
                 Cancel
               </button>
               <button type="submit" className="btn-primary" disabled={saving}>
-                {saving ? "Saving…" : isReturn ? "Process Return" : "Save Charge"}
+                {saving
+                  ? "Saving…"
+                  : isReturn
+                  ? "Process Return"
+                  : editingId
+                  ? "Save Changes"
+                  : "Save Charge"}
               </button>
             </div>
           </form>
