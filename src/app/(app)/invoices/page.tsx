@@ -15,9 +15,13 @@ type Invoice = {
   total: string;
   amountPaid: string;
   invoiceDate: string;
-  party: { name: string };
+  party: { id?: string; name: string };
   profit?: number | null;
 };
+
+const DAY = 86400000;
+const OVERDUE_DAYS = 10;
+const daysSince = (d: string) => Math.floor((Date.now() - new Date(d).getTime()) / DAY);
 type Line = {
   id: string;
   description: string;
@@ -38,11 +42,56 @@ export default function InvoicesPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [overdueOnly, setOverdueOnly] = useState(false);
+
+  // Quick "mark received" modal.
+  const [payInv, setPayInv] = useState<Invoice | null>(null);
+  const [payAmount, setPayAmount] = useState(0);
+  const [payMethod, setPayMethod] = useState("CASH");
+  const [paySaving, setPaySaving] = useState(false);
 
   async function load() {
     const q = type ? `?type=${type}` : "";
     const r = await api<{ invoices: Invoice[] }>(`/api/invoices${q}`);
     setInvoices(r.invoices);
+  }
+
+  const dueOf = (inv: Invoice) => Number(inv.total) - Number(inv.amountPaid);
+  const isOverdue = (inv: Invoice) =>
+    inv.type === "SALE" && dueOf(inv) > 0.009 && daysSince(inv.invoiceDate) >= OVERDUE_DAYS;
+
+  function openPay(inv: Invoice) {
+    setPayInv(inv);
+    setPayAmount(Math.round(dueOf(inv) * 100) / 100);
+    setPayMethod("CASH");
+    setError("");
+  }
+  async function recordPay(e: React.FormEvent) {
+    e.preventDefault();
+    if (!payInv) return;
+    const amt = Number(payAmount);
+    if (!(amt > 0)) return setError("Enter an amount.");
+    setPaySaving(true);
+    setError("");
+    try {
+      await api("/api/payments", {
+        method: "POST",
+        body: {
+          partyId: payInv.party?.id,
+          invoiceId: payInv.id,
+          direction: payInv.type === "SALE" ? "IN" : "OUT",
+          purpose: payInv.type === "SALE" ? "Customer Receipt" : "Supplier Payment",
+          amount: amt,
+          method: payMethod,
+        },
+      });
+      setPayInv(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to record payment");
+    } finally {
+      setPaySaving(false);
+    }
   }
   useEffect(() => {
     load();
@@ -101,15 +150,22 @@ export default function InvoicesPage() {
   }
 
   const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  // Overdue: unpaid sale bills past the 10-day mark.
+  const overdueList = invoices.filter(isOverdue);
+  const overdueTotal = overdueList.reduce((s, i) => s + dueOf(i), 0);
+
   // Live client-side search by customer/supplier name or bill number.
   const term = search.trim().toLowerCase();
-  const visible = term
-    ? invoices.filter(
-        (inv) =>
-          inv.party?.name?.toLowerCase().includes(term) ||
-          inv.invoiceNumber.toLowerCase().includes(term)
-      )
-    : invoices;
+  const visible = invoices.filter((inv) => {
+    if (overdueOnly && !isOverdue(inv)) return false;
+    if (
+      term &&
+      !inv.party?.name?.toLowerCase().includes(term) &&
+      !inv.invoiceNumber.toLowerCase().includes(term)
+    )
+      return false;
+    return true;
+  });
   const sum = invoices.reduce(
     (acc, inv) => {
       const total = Number(inv.total);
@@ -139,6 +195,29 @@ export default function InvoicesPage() {
           <span>{notice}</span>
           <button onClick={() => setNotice("")} className="text-amber-600 hover:underline">
             Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Overdue alert */}
+      {overdueList.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+          <div className="flex items-center gap-3 text-sm text-rose-800">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-lg">
+              ⏰
+            </span>
+            <span>
+              <b>{overdueList.length}</b> customer{overdueList.length === 1 ? "" : "s"} haven&apos;t
+              paid after {OVERDUE_DAYS} days · <b>{formatMoney(overdueTotal)}</b> to collect
+            </span>
+          </div>
+          <button
+            onClick={() => setOverdueOnly((v) => !v)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+              overdueOnly ? "bg-white text-rose-700 border border-rose-300" : "bg-rose-600 text-white"
+            }`}
+          >
+            {overdueOnly ? "Show all bills" : "Show overdue only"}
           </button>
         </div>
       )}
@@ -230,8 +309,17 @@ export default function InvoicesPage() {
               {visible.map((inv) => {
                 const due = round2(Number(inv.total) - Number(inv.amountPaid));
                 const profit = inv.profit;
+                const overdue = isOverdue(inv);
+                const lateDays = daysSince(inv.invoiceDate);
                 return (
-                  <tr key={inv.id} className="transition hover:bg-slate-50/70">
+                  <tr
+                    key={inv.id}
+                    className={`transition ${
+                      overdue
+                        ? "border-l-4 border-l-rose-500 bg-rose-50/60 hover:bg-rose-50"
+                        : "hover:bg-slate-50/70"
+                    }`}
+                  >
                     <td className="table-td">
                       <div className="flex items-center gap-2.5">
                         <span
@@ -267,7 +355,14 @@ export default function InvoicesPage() {
                     </td>
                     <td className="table-td text-right">
                       {due > 0.009 ? (
-                        <span className="font-semibold text-rose-600">{formatMoney(due)}</span>
+                        <>
+                          <div className="font-semibold text-rose-600">{formatMoney(due)}</div>
+                          {overdue && (
+                            <div className="text-[11px] font-bold text-rose-500">
+                              ⏰ {lateDays} days overdue
+                            </div>
+                          )}
+                        </>
                       ) : due < -0.009 ? (
                         <span className="text-xs font-semibold text-emerald-600">
                           {formatMoney(Math.abs(due))} advance
@@ -277,6 +372,14 @@ export default function InvoicesPage() {
                       )}
                     </td>
                     <td className="table-td text-right">
+                      {due > 0.009 && (
+                        <button
+                          onClick={() => openPay(inv)}
+                          className="mr-3 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700"
+                        >
+                          ✓ Received
+                        </button>
+                      )}
                       <Link
                         href={`/invoices/${inv.id}/print`}
                         className="mr-3 text-brand hover:underline"
@@ -309,6 +412,8 @@ export default function InvoicesPage() {
                   <td className="table-td text-gray-400" colSpan={7}>
                     {invoices.length === 0
                       ? "No invoices yet."
+                      : overdueOnly
+                      ? "No overdue payments — all caught up! 🎉"
                       : `No bills match “${search}”.`}
                   </td>
                 </tr>
@@ -374,6 +479,65 @@ export default function InvoicesPage() {
               </button>
               <button type="submit" className="btn-primary" disabled={saving}>
                 {saving ? "Processing…" : "Record Return"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {payInv && (
+        <Modal
+          title={`Payment ${payInv.type === "SALE" ? "received" : "paid"} — ${payInv.invoiceNumber}`}
+          onClose={() => setPayInv(null)}
+        >
+          <form onSubmit={recordPay} className="space-y-4">
+            {error && <div className="text-sm text-red-600">{error}</div>}
+            <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+              <span className="font-semibold">{payInv.party?.name}</span>
+              <span className="ml-2 text-slate-500">
+                Balance due {formatMoney(dueOf(payInv))}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Amount received</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(Number(e.target.value))}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setPayAmount(round2(dueOf(payInv)))}
+                  className="mt-1 text-xs font-medium text-brand hover:underline"
+                >
+                  Full balance {formatMoney(dueOf(payInv))}
+                </button>
+              </div>
+              <div>
+                <label className="label">Received via</label>
+                <select
+                  className="input"
+                  value={payMethod}
+                  onChange={(e) => setPayMethod(e.target.value)}
+                >
+                  {["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"].map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" className="btn-secondary" onClick={() => setPayInv(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary" disabled={paySaving}>
+                {paySaving ? "Saving…" : "Record Payment"}
               </button>
             </div>
           </form>
