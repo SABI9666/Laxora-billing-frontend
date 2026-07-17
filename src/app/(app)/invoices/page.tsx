@@ -30,6 +30,13 @@ type Line = {
   returnedQty?: string;
 };
 const remainingQty = (l: Line) => Number(l.quantity) - Number(l.returnedQty ?? 0);
+type CreditNote = {
+  id: string;
+  totalAmount: string;
+  reason?: string | null;
+  refundMethod?: string | null;
+  createdAt: string;
+};
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -41,6 +48,11 @@ export default function InvoicesPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [retQty, setRetQty] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("");
+  // How the customer is paid back for the returned goods. CASH/BANK records an
+  // OUT voucher so the cash book drops; NONE only credits the customer ledger.
+  const [refundMethod, setRefundMethod] = useState<"CASH" | "BANK" | "NONE">("CASH");
+  // Returns already recorded against the open bill, so a wrong one can be undone.
+  const [returnsList, setReturnsList] = useState<CreditNote[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -116,14 +128,28 @@ export default function InvoicesPage() {
     await load();
   }
 
-  async function openReturn(inv: Invoice) {
-    setError("");
-    setReason("");
-    setRetQty({});
-    setReturnInv(inv);
-    const r = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${inv.id}`);
+  // Refresh the return modal's item lines and recorded-returns list from the
+  // server so both reflect the latest state after recording or deleting one.
+  async function refreshReturnModal(invId: string) {
+    const [r, rr] = await Promise.all([
+      api<{ invoice: { items: Line[] } }>(`/api/invoices/${invId}`),
+      api<{ returns: CreditNote[] }>(`/api/invoices/${invId}/returns`),
+    ]);
     // Only lines with quantity still left to return.
     setLines(r.invoice.items.filter((l) => remainingQty(l) > 0.0001));
+    setReturnsList(rr.returns);
+  }
+
+  async function openReturn(inv: Invoice) {
+    setError("");
+    setNotice("");
+    setReason("");
+    setRetQty({});
+    setRefundMethod("CASH");
+    setReturnsList([]);
+    setLines([]);
+    setReturnInv(inv);
+    await refreshReturnModal(inv.id);
   }
 
   async function submitReturn(e: React.FormEvent) {
@@ -141,12 +167,43 @@ export default function InvoicesPage() {
     try {
       await api(`/api/invoices/${returnInv.id}/return`, {
         method: "POST",
-        body: { items, reason: reason || undefined },
+        body: {
+          items,
+          reason: reason || undefined,
+          refundMethod: refundMethod === "NONE" ? undefined : refundMethod,
+        },
       });
-      setReturnInv(null);
+      setReason("");
+      setRetQty({});
+      // Keep the modal open so the operator sees the return recorded and can
+      // undo it if it was wrong.
+      await refreshReturnModal(returnInv.id);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to record return");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Undo a wrong return: reverses the stock it added back and any cash refund,
+  // and frees the returned quantity so the items count as sold again.
+  async function deleteReturn(cn: CreditNote) {
+    if (!returnInv) return;
+    if (
+      !confirm(
+        `Delete this return of ${formatMoney(cn.totalAmount)}? The items go back to sold, the stock it added is removed, and any cash refund is reversed.`
+      )
+    )
+      return;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/invoices/${returnInv.id}/return/${cn.id}`, { method: "DELETE" });
+      await refreshReturnModal(returnInv.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to delete return");
     } finally {
       setSaving(false);
     }
@@ -479,22 +536,92 @@ export default function InvoicesPage() {
                 </p>
               )}
             </div>
-            <div>
-              <label className="label">Reason (optional)</label>
-              <input
-                className="input"
-                placeholder="e.g. damaged / wrong item"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
-            </div>
+            {lines.length > 0 && (
+              <>
+                <div>
+                  <label className="label">Refund the customer via</label>
+                  <select
+                    className="input"
+                    value={refundMethod}
+                    onChange={(e) =>
+                      setRefundMethod(e.target.value as "CASH" | "BANK" | "NONE")
+                    }
+                  >
+                    <option value="CASH">Cash — pay back from the cash drawer</option>
+                    <option value="BANK">Bank — refund to bank</option>
+                    <option value="NONE">
+                      No cash paid — credit the customer&apos;s ledger only
+                    </option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Cash or Bank records a refund voucher so your cash book drops by the
+                    returned amount. Use ledger credit for account customers.
+                  </p>
+                </div>
+                <div>
+                  <label className="label">Reason (optional)</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. damaged / wrong item"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+
+            {returnsList.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  Returns recorded on this bill
+                </p>
+                <div className="space-y-1.5">
+                  {returnsList.map((cn) => (
+                    <div
+                      key={cn.id}
+                      className="flex items-center justify-between gap-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-semibold text-slate-800">
+                          {formatMoney(cn.totalAmount)}
+                        </span>
+                        <span className="text-gray-500">
+                          {" · "}
+                          {formatDate(cn.createdAt)}
+                          {" · "}
+                          {cn.refundMethod
+                            ? `refunded ${cn.refundMethod.toLowerCase()}`
+                            : "ledger credit"}
+                          {cn.reason ? ` · ${cn.reason}` : ""}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => deleteReturn(cn)}
+                        disabled={saving}
+                        className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500">
+                  Deleting a wrong return puts the items back as sold, removes the stock it
+                  added, and reverses any cash refund.
+                </p>
+              </div>
+            )}
+
             <div className="flex justify-end gap-3">
               <button type="button" className="btn-secondary" onClick={() => setReturnInv(null)}>
-                Cancel
+                {lines.length > 0 ? "Cancel" : "Close"}
               </button>
-              <button type="submit" className="btn-primary" disabled={saving}>
-                {saving ? "Processing…" : "Record Return"}
-              </button>
+              {lines.length > 0 && (
+                <button type="submit" className="btn-primary" disabled={saving}>
+                  {saving ? "Processing…" : "Record Return"}
+                </button>
+              )}
             </div>
           </form>
         </Modal>
