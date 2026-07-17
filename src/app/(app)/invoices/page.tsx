@@ -27,7 +27,9 @@ type Line = {
   description: string;
   quantity: string;
   rate: string;
+  returnedQty?: string;
 };
+const remainingQty = (l: Line) => Number(l.quantity) - Number(l.returnedQty ?? 0);
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -120,7 +122,8 @@ export default function InvoicesPage() {
     setRetQty({});
     setReturnInv(inv);
     const r = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${inv.id}`);
-    setLines(r.invoice.items.filter((l) => Number(l.quantity) > 0));
+    // Only lines with quantity still left to return.
+    setLines(r.invoice.items.filter((l) => remainingQty(l) > 0.0001));
   }
 
   async function submitReturn(e: React.FormEvent) {
@@ -435,33 +438,45 @@ export default function InvoicesPage() {
               the bill/profit is adjusted automatically.
             </p>
             <div className="space-y-2">
-              {lines.map((l) => (
-                <div key={l.id} className="flex items-center gap-2 border-b pb-2">
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">{l.description}</div>
-                    <div className="text-xs text-gray-500">
-                      Sold: {Number(l.quantity)} @ {formatMoney(l.rate)}
+              {lines.map((l) => {
+                const remain = remainingQty(l);
+                const alreadyRet = Number(l.returnedQty ?? 0);
+                return (
+                  <div key={l.id} className="flex items-center gap-2 border-b pb-2">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">{l.description}</div>
+                      <div className="text-xs text-gray-500">
+                        Sold {Number(l.quantity)} @ {formatMoney(l.rate)}
+                        {alreadyRet > 0 && (
+                          <span className="ml-1 text-amber-600">· {alreadyRet} already returned</span>
+                        )}
+                        <span className="ml-1 font-medium text-slate-600">
+                          · {remain} can be returned
+                        </span>
+                      </div>
                     </div>
+                    <input
+                      type="number"
+                      min={0}
+                      max={remain}
+                      step="0.001"
+                      placeholder="0"
+                      className="w-20 rounded border border-gray-200 px-2 py-1 text-sm"
+                      value={retQty[l.id] ?? ""}
+                      onChange={(e) =>
+                        setRetQty({
+                          ...retQty,
+                          [l.id]: Math.min(Number(e.target.value), remain),
+                        })
+                      }
+                    />
                   </div>
-                  <input
-                    type="number"
-                    min={0}
-                    max={Number(l.quantity)}
-                    step="0.001"
-                    placeholder="0"
-                    className="w-20 rounded border border-gray-200 px-2 py-1 text-sm"
-                    value={retQty[l.id] ?? ""}
-                    onChange={(e) =>
-                      setRetQty({
-                        ...retQty,
-                        [l.id]: Math.min(Number(e.target.value), Number(l.quantity)),
-                      })
-                    }
-                  />
-                </div>
-              ))}
+                );
+              })}
               {lines.length === 0 && (
-                <p className="text-sm text-gray-400">No returnable items on this bill.</p>
+                <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                  ✓ No products left to return on this bill — everything has already been returned.
+                </p>
               )}
             </div>
             <div>
