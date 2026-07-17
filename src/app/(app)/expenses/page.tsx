@@ -16,7 +16,14 @@ type Expense = {
   date: string;
 };
 type Invoice = { id: string; invoiceNumber: string };
-type BillItem = { id: string; description: string; quantity: string; rate: string };
+type BillItem = {
+  id: string;
+  description: string;
+  quantity: string;
+  rate: string;
+  returnedQty?: string;
+};
+const remainingQty = (l: BillItem) => Number(l.quantity) - Number(l.returnedQty ?? 0);
 
 const RETURN = "Return Material";
 const CATEGORIES = [
@@ -79,7 +86,7 @@ export default function ExpensesPage() {
       return;
     }
     api<{ invoice: { items: BillItem[] } }>(`/api/invoices/${form.invoiceId}`).then((r) =>
-      setBillItems(r.invoice.items.filter((l) => Number(l.quantity) > 0))
+      setBillItems(r.invoice.items.filter((l) => remainingQty(l) > 0.0001))
     );
   }, [isReturn, form.invoiceId]);
 
@@ -292,31 +299,45 @@ export default function ExpensesPage() {
                   <p className="text-sm text-gray-400">Select a bill above to load its items.</p>
                 )}
                 <div className="space-y-2">
-                  {billItems.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2 border-b pb-2">
-                      <div className="flex-1">
-                        <div className="text-sm font-medium">{l.description}</div>
-                        <div className="text-xs text-gray-500">
-                          Sold: {Number(l.quantity)} @ {formatMoney(l.rate)}
+                  {billItems.map((l) => {
+                    const remain = remainingQty(l);
+                    const already = Number(l.returnedQty ?? 0);
+                    return (
+                      <div key={l.id} className="flex items-center gap-2 border-b pb-2">
+                        <div className="flex-1">
+                          <div className="text-sm font-medium">{l.description}</div>
+                          <div className="text-xs text-gray-500">
+                            Sold {Number(l.quantity)} @ {formatMoney(l.rate)}
+                            {already > 0 && (
+                              <span className="text-amber-600"> · {already} already returned</span>
+                            )}
+                            <span className="text-green-600"> · {remain} can be returned</span>
+                          </div>
                         </div>
+                        <input
+                          type="number"
+                          min={0}
+                          max={remain}
+                          step="0.001"
+                          placeholder="0"
+                          className="w-20 rounded border border-gray-200 px-2 py-1 text-sm"
+                          value={retQty[l.id] ?? ""}
+                          onChange={(e) =>
+                            setRetQty({
+                              ...retQty,
+                              [l.id]: Math.min(Number(e.target.value), remain),
+                            })
+                          }
+                        />
                       </div>
-                      <input
-                        type="number"
-                        min={0}
-                        max={Number(l.quantity)}
-                        step="0.001"
-                        placeholder="0"
-                        className="w-20 rounded border border-gray-200 px-2 py-1 text-sm"
-                        value={retQty[l.id] ?? ""}
-                        onChange={(e) =>
-                          setRetQty({
-                            ...retQty,
-                            [l.id]: Math.min(Number(e.target.value), Number(l.quantity)),
-                          })
-                        }
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
+                  {form.invoiceId && billItems.length === 0 && (
+                    <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
+                      ✓ No products left to return on this bill — everything has already been
+                      returned.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (
