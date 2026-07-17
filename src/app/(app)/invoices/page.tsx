@@ -2,13 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, ApiError, getBusinessId } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
-// Roles allowed to delete/undo a wrong return (owner/admin level).
-const MANAGER_ROLES = ["OWNER", "ADMIN", "MANAGER", "FRANCHISE_ADMIN"];
 type ReturnRow = {
   id: string;
   totalAmount: string;
@@ -53,7 +51,6 @@ export default function InvoicesPage() {
   const [reason, setReason] = useState("");
   const [refundMethod, setRefundMethod] = useState("");
   const [existingReturns, setExistingReturns] = useState<ReturnRow[]>([]);
-  const [canManage, setCanManage] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -129,17 +126,6 @@ export default function InvoicesPage() {
     await load();
   }
 
-  // Am I an owner/admin/manager on the active shop? Only they can delete returns.
-  useEffect(() => {
-    api<{ user: { memberships: { role: string; business: { id: string } }[] } }>("/api/auth/me")
-      .then((r) => {
-        const bid = getBusinessId();
-        const mine = r.user.memberships.find((m) => m.business.id === bid);
-        setCanManage(!!mine && MANAGER_ROLES.includes(mine.role));
-      })
-      .catch(() => {});
-  }, []);
-
   async function loadReturns(invoiceId: string) {
     try {
       const r = await api<{ returns: ReturnRow[] }>(`/api/invoices/${invoiceId}/returns`);
@@ -190,20 +176,26 @@ export default function InvoicesPage() {
 
   async function deleteReturn(rid: string) {
     if (!returnInv) return;
-    if (
-      !confirm(
-        "Delete this return? It will remove the stock it added back, restore the bill, and reverse any cash/bank refund. This cannot be undone."
-      )
-    )
-      return;
+    const why = prompt(
+      "Report this return as wrong? It will be sent to the admin for approval, and only removed once they approve.\n\nReason (optional):",
+      ""
+    );
+    if (why === null) return; // cancelled
     try {
-      await api(`/api/invoices/${returnInv.id}/return/${rid}`, { method: "DELETE" });
-      const r = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${returnInv.id}`);
-      setLines(r.invoice.items.filter((l) => remainingQty(l) > 0.0001));
+      const r = await api<{ pending?: boolean; message?: string }>(
+        `/api/invoices/${returnInv.id}/return/${rid}`,
+        { method: "DELETE", body: { reason: why || undefined } }
+      );
+      if (r?.pending) {
+        alert(r.message || "Sent to the admin for approval.");
+      }
+      // Reload (a platform admin's removal takes effect immediately).
+      const inv = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${returnInv.id}`);
+      setLines(inv.invoice.items.filter((l) => remainingQty(l) > 0.0001));
       await loadReturns(returnInv.id);
       await load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this return");
+      alert(err instanceof ApiError ? err.message : "Could not submit this request");
     }
   }
 
@@ -582,25 +574,20 @@ export default function InvoicesPage() {
                         )}
                         {r.reason && <span className="text-gray-400"> · {r.reason}</span>}
                       </div>
-                      {canManage ? (
-                        <button
-                          type="button"
-                          onClick={() => deleteReturn(r.id)}
-                          className="shrink-0 text-red-600 hover:underline"
-                        >
-                          Delete
-                        </button>
-                      ) : (
-                        <span className="shrink-0 text-xs text-gray-400">admin only</span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => deleteReturn(r.id)}
+                        className="shrink-0 text-red-600 hover:underline"
+                      >
+                        Report wrong
+                      </button>
                     </div>
                   ))}
                 </div>
-                {!canManage && (
-                  <p className="mt-2 text-xs text-gray-400">
-                    Only the shop owner/admin can delete a wrong return.
-                  </p>
-                )}
+                <p className="mt-2 text-xs text-gray-400">
+                  Reporting a wrong return sends it to the admin — it&apos;s only removed once
+                  the admin approves.
+                </p>
               </div>
             )}
 
