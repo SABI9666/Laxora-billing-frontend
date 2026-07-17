@@ -186,24 +186,37 @@ export default function InvoicesPage() {
     }
   }
 
-  // Undo a wrong return: reverses the stock it added back and any cash refund,
-  // and frees the returned quantity so the items count as sold again.
+  // Request to undo a wrong return. Shop users' requests are held for admin
+  // approval; once approved the stock the return added is removed, the returned
+  // quantity is freed (items count as sold again), and any cash refund is
+  // reversed.
   async function deleteReturn(cn: CreditNote) {
     if (!returnInv) return;
     if (
       !confirm(
-        `Delete this return of ${formatMoney(cn.totalAmount)}? The items go back to sold, the stock it added is removed, and any cash refund is reversed.`
+        `Request deletion of this return of ${formatMoney(cn.totalAmount)}? An admin must approve it. Once approved, the items go back to sold, the stock it added is removed, and any cash refund is reversed.`
       )
     )
       return;
     setSaving(true);
     setError("");
     try {
-      await api(`/api/invoices/${returnInv.id}/return/${cn.id}`, { method: "DELETE" });
+      const r = await api<{ pending?: boolean; message?: string } | undefined>(
+        `/api/invoices/${returnInv.id}/return/${cn.id}`,
+        { method: "DELETE" }
+      );
+      if (r?.pending) {
+        // Held for admin approval — the return stays until approved.
+        setReturnInv(null);
+        setNotice(r.message ?? "Return deletion sent to the admin for approval.");
+        await load();
+        return;
+      }
+      // Platform admin: reversed immediately.
       await refreshReturnModal(returnInv.id);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to delete return");
+      setError(err instanceof ApiError ? err.message : "Failed to request return deletion");
     } finally {
       setSaving(false);
     }
@@ -601,14 +614,14 @@ export default function InvoicesPage() {
                         disabled={saving}
                         className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
                       >
-                        Delete
+                        Request delete
                       </button>
                     </div>
                   ))}
                 </div>
                 <p className="mt-2 text-[11px] text-gray-500">
-                  Deleting a wrong return puts the items back as sold, removes the stock it
-                  added, and reverses any cash refund.
+                  A wrong return is sent to the admin for approval. Once approved it puts the
+                  items back as sold, removes the stock it added, and reverses any cash refund.
                 </p>
               </div>
             )}
