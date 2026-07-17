@@ -339,6 +339,12 @@ export default function ExpensesPage() {
                   </option>
                 ))}
               </select>
+              {!isReturn && form.invoiceId && (
+                <p className="mt-1 text-xs text-gray-400">
+                  This charge settles the bill&apos;s outstanding due (up to whatever is still
+                  pending), and the bill&apos;s status updates to Paid/Partial accordingly.
+                </p>
+              )}
             </div>
 
             {isReturn ? (

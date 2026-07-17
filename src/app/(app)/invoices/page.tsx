@@ -7,14 +7,6 @@ import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
-type ReturnRow = {
-  id: string;
-  totalAmount: string;
-  refundMethod?: string | null;
-  reason?: string | null;
-  createdAt: string;
-};
-
 type Invoice = {
   id: string;
   invoiceNumber: string;
@@ -38,6 +30,13 @@ type Line = {
   returnedQty?: string;
 };
 const remainingQty = (l: Line) => Number(l.quantity) - Number(l.returnedQty ?? 0);
+type CreditNote = {
+  id: string;
+  totalAmount: string;
+  reason?: string | null;
+  refundMethod?: string | null;
+  createdAt: string;
+};
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -49,8 +48,11 @@ export default function InvoicesPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [retQty, setRetQty] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("");
-  const [refundMethod, setRefundMethod] = useState("");
-  const [existingReturns, setExistingReturns] = useState<ReturnRow[]>([]);
+  // How the customer is paid back for the returned goods. CASH/BANK records an
+  // OUT voucher so the cash book drops; NONE only credits the customer ledger.
+  const [refundMethod, setRefundMethod] = useState<"CASH" | "BANK" | "NONE">("CASH");
+  // Returns already recorded against the open bill, so a wrong one can be undone.
+  const [returnsList, setReturnsList] = useState<CreditNote[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -126,26 +128,28 @@ export default function InvoicesPage() {
     await load();
   }
 
-  async function loadReturns(invoiceId: string) {
-    try {
-      const r = await api<{ returns: ReturnRow[] }>(`/api/invoices/${invoiceId}/returns`);
-      setExistingReturns(r.returns);
-    } catch {
-      setExistingReturns([]);
-    }
+  // Refresh the return modal's item lines and recorded-returns list from the
+  // server so both reflect the latest state after recording or deleting one.
+  async function refreshReturnModal(invId: string) {
+    const [r, rr] = await Promise.all([
+      api<{ invoice: { items: Line[] } }>(`/api/invoices/${invId}`),
+      api<{ returns: CreditNote[] }>(`/api/invoices/${invId}/returns`),
+    ]);
+    // Only lines with quantity still left to return.
+    setLines(r.invoice.items.filter((l) => remainingQty(l) > 0.0001));
+    setReturnsList(rr.returns);
   }
 
   async function openReturn(inv: Invoice) {
     setError("");
+    setNotice("");
     setReason("");
     setRetQty({});
-    setRefundMethod("");
-    setExistingReturns([]);
+    setRefundMethod("CASH");
+    setReturnsList([]);
+    setLines([]);
     setReturnInv(inv);
-    const r = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${inv.id}`);
-    // Only lines with quantity still left to return.
-    setLines(r.invoice.items.filter((l) => remainingQty(l) > 0.0001));
-    loadReturns(inv.id);
+    await refreshReturnModal(inv.id);
   }
 
   async function submitReturn(e: React.FormEvent) {
@@ -163,9 +167,17 @@ export default function InvoicesPage() {
     try {
       await api(`/api/invoices/${returnInv.id}/return`, {
         method: "POST",
-        body: { items, reason: reason || undefined, refundMethod: refundMethod || undefined },
+        body: {
+          items,
+          reason: reason || undefined,
+          refundMethod: refundMethod === "NONE" ? undefined : refundMethod,
+        },
       });
-      setReturnInv(null);
+      setReason("");
+      setRetQty({});
+      // Keep the modal open so the operator sees the return recorded and can
+      // undo it if it was wrong.
+      await refreshReturnModal(returnInv.id);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to record return");
@@ -174,28 +186,39 @@ export default function InvoicesPage() {
     }
   }
 
-  async function deleteReturn(rid: string) {
+  // Request to undo a wrong return. Shop users' requests are held for admin
+  // approval; once approved the stock the return added is removed, the returned
+  // quantity is freed (items count as sold again), and any cash refund is
+  // reversed.
+  async function deleteReturn(cn: CreditNote) {
     if (!returnInv) return;
-    const why = prompt(
-      "Report this return as wrong? It will be sent to the admin for approval, and only removed once they approve.\n\nReason (optional):",
-      ""
-    );
-    if (why === null) return; // cancelled
+    if (
+      !confirm(
+        `Request deletion of this return of ${formatMoney(cn.totalAmount)}? An admin must approve it. Once approved, the items go back to sold, the stock it added is removed, and any cash refund is reversed.`
+      )
+    )
+      return;
+    setSaving(true);
+    setError("");
     try {
-      const r = await api<{ pending?: boolean; message?: string }>(
-        `/api/invoices/${returnInv.id}/return/${rid}`,
-        { method: "DELETE", body: { reason: why || undefined } }
+      const r = await api<{ pending?: boolean; message?: string } | undefined>(
+        `/api/invoices/${returnInv.id}/return/${cn.id}`,
+        { method: "DELETE" }
       );
       if (r?.pending) {
-        alert(r.message || "Sent to the admin for approval.");
+        // Held for admin approval — the return stays until approved.
+        setReturnInv(null);
+        setNotice(r.message ?? "Return deletion sent to the admin for approval.");
+        await load();
+        return;
       }
-      // Reload (a platform admin's removal takes effect immediately).
-      const inv = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${returnInv.id}`);
-      setLines(inv.invoice.items.filter((l) => remainingQty(l) > 0.0001));
-      await loadReturns(returnInv.id);
+      // Platform admin: reversed immediately.
+      await refreshReturnModal(returnInv.id);
       await load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not submit this request");
+      setError(err instanceof ApiError ? err.message : "Failed to request return deletion");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -526,78 +549,92 @@ export default function InvoicesPage() {
                 </p>
               )}
             </div>
-            <div>
-              <label className="label">Reason (optional)</label>
-              <input
-                className="input"
-                placeholder="e.g. damaged / wrong item"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
-            </div>
-
             {lines.length > 0 && (
-              <div>
-                <label className="label">Refund the customer</label>
-                <select
-                  className="input"
-                  value={refundMethod}
-                  onChange={(e) => setRefundMethod(e.target.value)}
-                >
-                  <option value="">No cash refund — just credit their account</option>
-                  <option value="CASH">Give cash back (reduces cash balance)</option>
-                  <option value="BANK">Bank transfer back (reduces bank balance)</option>
-                </select>
-                <p className="mt-1 text-xs text-gray-400">
-                  {refundMethod
-                    ? `The refund will be taken out of this shop's ${
-                        refundMethod === "BANK" ? "bank" : "cash"
-                      } in the cash book.`
-                    : "Use this only if you're physically handing money back. Otherwise it just lowers what they owe."}
-                </p>
-              </div>
+              <>
+                <div>
+                  <label className="label">Refund the customer via</label>
+                  <select
+                    className="input"
+                    value={refundMethod}
+                    onChange={(e) =>
+                      setRefundMethod(e.target.value as "CASH" | "BANK" | "NONE")
+                    }
+                  >
+                    <option value="CASH">Cash — pay back from the cash drawer</option>
+                    <option value="BANK">Bank — refund to bank</option>
+                    <option value="NONE">
+                      No cash paid — credit the customer&apos;s ledger only
+                    </option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Cash or Bank records a refund voucher so your cash book drops by the
+                    returned amount. Use ledger credit for account customers.
+                  </p>
+                </div>
+                <div>
+                  <label className="label">Reason (optional)</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. damaged / wrong item"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  />
+                </div>
+              </>
             )}
 
-            {existingReturns.length > 0 && (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Returns already recorded on this bill
-                </div>
+            {returnsList.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  Returns recorded on this bill
+                </p>
                 <div className="space-y-1.5">
-                  {existingReturns.map((r) => (
-                    <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
-                      <div>
-                        <span className="font-medium">{formatMoney(r.totalAmount)}</span>
-                        <span className="text-gray-400"> · {formatDate(r.createdAt)}</span>
-                        {r.refundMethod && (
-                          <span className="text-gray-400"> · refunded {r.refundMethod}</span>
-                        )}
-                        {r.reason && <span className="text-gray-400"> · {r.reason}</span>}
+                  {returnsList.map((cn) => (
+                    <div
+                      key={cn.id}
+                      className="flex items-center justify-between gap-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-semibold text-slate-800">
+                          {formatMoney(cn.totalAmount)}
+                        </span>
+                        <span className="text-gray-500">
+                          {" · "}
+                          {formatDate(cn.createdAt)}
+                          {" · "}
+                          {cn.refundMethod
+                            ? `refunded ${cn.refundMethod.toLowerCase()}`
+                            : "ledger credit"}
+                          {cn.reason ? ` · ${cn.reason}` : ""}
+                        </span>
                       </div>
                       <button
                         type="button"
-                        onClick={() => deleteReturn(r.id)}
-                        className="shrink-0 text-red-600 hover:underline"
+                        onClick={() => deleteReturn(cn)}
+                        disabled={saving}
+                        className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
                       >
-                        Report wrong
+                        Request delete
                       </button>
                     </div>
                   ))}
                 </div>
-                <p className="mt-2 text-xs text-gray-400">
-                  Reporting a wrong return sends it to the admin — it&apos;s only removed once
-                  the admin approves.
+                <p className="mt-2 text-[11px] text-gray-500">
+                  A wrong return is sent to the admin for approval. Once approved it puts the
+                  items back as sold, removes the stock it added, and reverses any cash refund.
                 </p>
               </div>
             )}
 
             <div className="flex justify-end gap-3">
               <button type="button" className="btn-secondary" onClick={() => setReturnInv(null)}>
-                Cancel
+                {lines.length > 0 ? "Cancel" : "Close"}
               </button>
-              <button type="submit" className="btn-primary" disabled={saving || lines.length === 0}>
-                {saving ? "Processing…" : "Record Return"}
-              </button>
+              {lines.length > 0 && (
+                <button type="submit" className="btn-primary" disabled={saving}>
+                  {saving ? "Processing…" : "Record Return"}
+                </button>
+              )}
             </div>
           </form>
         </Modal>

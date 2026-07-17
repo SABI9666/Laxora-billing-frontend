@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
 import Sidebar from "@/components/Sidebar";
+import SpecialReminder from "@/components/SpecialReminder";
 
 // Auth guard + app shell for all signed-in pages.
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -27,9 +28,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <main className="flex-1 overflow-x-hidden p-6 lg:p-8">{children}</main>
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      {/* Special reminder broadcast from Super Admin (banner + popup) */}
+      <SpecialReminder />
+      <div className="flex flex-1">
+        <Sidebar />
+        <main className="flex-1 overflow-x-hidden p-6 lg:p-8">{children}</main>
+      </div>
     </div>
   );
 }
