@@ -2,10 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getBusinessId } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+
+// Roles allowed to delete/undo a wrong return (owner/admin level).
+const MANAGER_ROLES = ["OWNER", "ADMIN", "MANAGER", "FRANCHISE_ADMIN"];
+type ReturnRow = {
+  id: string;
+  totalAmount: string;
+  refundMethod?: string | null;
+  reason?: string | null;
+  createdAt: string;
+};
 
 type Invoice = {
   id: string;
@@ -41,6 +51,9 @@ export default function InvoicesPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [retQty, setRetQty] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("");
+  const [refundMethod, setRefundMethod] = useState("");
+  const [existingReturns, setExistingReturns] = useState<ReturnRow[]>([]);
+  const [canManage, setCanManage] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -116,14 +129,37 @@ export default function InvoicesPage() {
     await load();
   }
 
+  // Am I an owner/admin/manager on the active shop? Only they can delete returns.
+  useEffect(() => {
+    api<{ user: { memberships: { role: string; business: { id: string } }[] } }>("/api/auth/me")
+      .then((r) => {
+        const bid = getBusinessId();
+        const mine = r.user.memberships.find((m) => m.business.id === bid);
+        setCanManage(!!mine && MANAGER_ROLES.includes(mine.role));
+      })
+      .catch(() => {});
+  }, []);
+
+  async function loadReturns(invoiceId: string) {
+    try {
+      const r = await api<{ returns: ReturnRow[] }>(`/api/invoices/${invoiceId}/returns`);
+      setExistingReturns(r.returns);
+    } catch {
+      setExistingReturns([]);
+    }
+  }
+
   async function openReturn(inv: Invoice) {
     setError("");
     setReason("");
     setRetQty({});
+    setRefundMethod("");
+    setExistingReturns([]);
     setReturnInv(inv);
     const r = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${inv.id}`);
     // Only lines with quantity still left to return.
     setLines(r.invoice.items.filter((l) => remainingQty(l) > 0.0001));
+    loadReturns(inv.id);
   }
 
   async function submitReturn(e: React.FormEvent) {
@@ -141,7 +177,7 @@ export default function InvoicesPage() {
     try {
       await api(`/api/invoices/${returnInv.id}/return`, {
         method: "POST",
-        body: { items, reason: reason || undefined },
+        body: { items, reason: reason || undefined, refundMethod: refundMethod || undefined },
       });
       setReturnInv(null);
       await load();
@@ -149,6 +185,25 @@ export default function InvoicesPage() {
       setError(err instanceof ApiError ? err.message : "Failed to record return");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteReturn(rid: string) {
+    if (!returnInv) return;
+    if (
+      !confirm(
+        "Delete this return? It will remove the stock it added back, restore the bill, and reverse any cash/bank refund. This cannot be undone."
+      )
+    )
+      return;
+    try {
+      await api(`/api/invoices/${returnInv.id}/return/${rid}`, { method: "DELETE" });
+      const r = await api<{ invoice: { items: Line[] } }>(`/api/invoices/${returnInv.id}`);
+      setLines(r.invoice.items.filter((l) => remainingQty(l) > 0.0001));
+      await loadReturns(returnInv.id);
+      await load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this return");
     }
   }
 
@@ -488,11 +543,72 @@ export default function InvoicesPage() {
                 onChange={(e) => setReason(e.target.value)}
               />
             </div>
+
+            {lines.length > 0 && (
+              <div>
+                <label className="label">Refund the customer</label>
+                <select
+                  className="input"
+                  value={refundMethod}
+                  onChange={(e) => setRefundMethod(e.target.value)}
+                >
+                  <option value="">No cash refund — just credit their account</option>
+                  <option value="CASH">Give cash back (reduces cash balance)</option>
+                  <option value="BANK">Bank transfer back (reduces bank balance)</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-400">
+                  {refundMethod
+                    ? `The refund will be taken out of this shop's ${
+                        refundMethod === "BANK" ? "bank" : "cash"
+                      } in the cash book.`
+                    : "Use this only if you're physically handing money back. Otherwise it just lowers what they owe."}
+                </p>
+              </div>
+            )}
+
+            {existingReturns.length > 0 && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Returns already recorded on this bill
+                </div>
+                <div className="space-y-1.5">
+                  {existingReturns.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                      <div>
+                        <span className="font-medium">{formatMoney(r.totalAmount)}</span>
+                        <span className="text-gray-400"> · {formatDate(r.createdAt)}</span>
+                        {r.refundMethod && (
+                          <span className="text-gray-400"> · refunded {r.refundMethod}</span>
+                        )}
+                        {r.reason && <span className="text-gray-400"> · {r.reason}</span>}
+                      </div>
+                      {canManage ? (
+                        <button
+                          type="button"
+                          onClick={() => deleteReturn(r.id)}
+                          className="shrink-0 text-red-600 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      ) : (
+                        <span className="shrink-0 text-xs text-gray-400">admin only</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {!canManage && (
+                  <p className="mt-2 text-xs text-gray-400">
+                    Only the shop owner/admin can delete a wrong return.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-end gap-3">
               <button type="button" className="btn-secondary" onClick={() => setReturnInv(null)}>
                 Cancel
               </button>
-              <button type="submit" className="btn-primary" disabled={saving}>
+              <button type="submit" className="btn-primary" disabled={saving || lines.length === 0}>
                 {saving ? "Processing…" : "Record Return"}
               </button>
             </div>

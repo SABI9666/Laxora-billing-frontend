@@ -1,10 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getBusinessId } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+
+// Roles allowed to delete/undo a wrong return (owner/admin level).
+const MANAGER_ROLES = ["OWNER", "ADMIN", "MANAGER", "FRANCHISE_ADMIN"];
+type ReturnRow = {
+  id: string;
+  totalAmount: string;
+  refundMethod?: string | null;
+  reason?: string | null;
+  createdAt: string;
+};
 
 type Expense = {
   id: string;
@@ -49,6 +59,8 @@ export default function ExpensesPage() {
     note: "",
     invoiceId: "",
     method: "CASH",
+    // How a return is refunded: "" = credit ledger only (no cash moves), else CASH/BANK.
+    refundMethod: "",
   });
   // When set, we're editing this charge (id + its original date to preserve).
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -57,8 +69,22 @@ export default function ExpensesPage() {
   // Return-mode state: the selected bill's items + how many to return.
   const [billItems, setBillItems] = useState<BillItem[]>([]);
   const [retQty, setRetQty] = useState<Record<string, number>>({});
+  // Returns already recorded on the selected bill (so wrong ones can be undone).
+  const [existingReturns, setExistingReturns] = useState<ReturnRow[]>([]);
+  const [canManage, setCanManage] = useState(false);
 
   const isReturn = form.category === RETURN;
+
+  // Am I an owner/admin/manager on the active shop? Only they can delete returns.
+  useEffect(() => {
+    api<{ user: { memberships: { role: string; business: { id: string } }[] } }>("/api/auth/me")
+      .then((r) => {
+        const bid = getBusinessId();
+        const mine = r.user.memberships.find((m) => m.business.id === bid);
+        setCanManage(!!mine && MANAGER_ROLES.includes(mine.role));
+      })
+      .catch(() => {});
+  }, []);
 
   async function load() {
     try {
@@ -78,20 +104,56 @@ export default function ExpensesPage() {
     load();
   }, []);
 
-  // When in return mode and a bill is chosen, load that bill's items.
+  async function loadReturns(invoiceId: string) {
+    try {
+      const r = await api<{ returns: ReturnRow[] }>(`/api/invoices/${invoiceId}/returns`);
+      setExistingReturns(r.returns);
+    } catch {
+      setExistingReturns([]);
+    }
+  }
+
+  // When in return mode and a bill is chosen, load that bill's items + past returns.
   useEffect(() => {
     if (!isReturn || !form.invoiceId) {
       setBillItems([]);
       setRetQty({});
+      setExistingReturns([]);
       return;
     }
     api<{ invoice: { items: BillItem[] } }>(`/api/invoices/${form.invoiceId}`).then((r) =>
       setBillItems(r.invoice.items.filter((l) => remainingQty(l) > 0.0001))
     );
+    loadReturns(form.invoiceId);
   }, [isReturn, form.invoiceId]);
 
+  async function deleteReturn(rid: string) {
+    if (
+      !confirm(
+        "Delete this return? It will remove the stock it added back, restore the bill, and reverse any cash/bank refund. This cannot be undone."
+      )
+    )
+      return;
+    try {
+      await api(`/api/invoices/${form.invoiceId}/return/${rid}`, { method: "DELETE" });
+      // Refresh items (returnedQty changed) and the returns list.
+      const inv = await api<{ invoice: { items: BillItem[] } }>(`/api/invoices/${form.invoiceId}`);
+      setBillItems(inv.invoice.items.filter((l) => remainingQty(l) > 0.0001));
+      await loadReturns(form.invoiceId);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this return");
+    }
+  }
+
   function openNew() {
-    setForm({ category: "Commission", amount: 0, note: "", invoiceId: "", method: "CASH" });
+    setForm({
+      category: "Commission",
+      amount: 0,
+      note: "",
+      invoiceId: "",
+      method: "CASH",
+      refundMethod: "",
+    });
     setEditingId(null);
     setEditingDate(null);
     setBillItems([]);
@@ -107,6 +169,7 @@ export default function ExpensesPage() {
       note: x.note || "",
       invoiceId: x.invoiceId || "",
       method: x.method || "CASH",
+      refundMethod: "",
     });
     setEditingId(x.id);
     setEditingDate(x.date);
@@ -130,7 +193,11 @@ export default function ExpensesPage() {
         if (items.length === 0) throw new Error("Enter a return quantity for at least one item");
         await api(`/api/invoices/${form.invoiceId}/return`, {
           method: "POST",
-          body: { items, reason: form.note || undefined },
+          body: {
+            items,
+            reason: form.note || undefined,
+            refundMethod: form.refundMethod || undefined,
+          },
         });
       } else {
         // Save the (edited) charge. For an edit we create the updated one with
@@ -333,6 +400,68 @@ export default function ExpensesPage() {
                     </p>
                   )}
                 </div>
+
+                {/* Refund: only when money is physically handed back to the customer. */}
+                {billItems.length > 0 && (
+                  <div className="mt-4">
+                    <label className="label">Refund the customer</label>
+                    <select
+                      className="input"
+                      value={form.refundMethod}
+                      onChange={(e) => setForm({ ...form, refundMethod: e.target.value })}
+                    >
+                      <option value="">No cash refund — just credit their account</option>
+                      <option value="CASH">Give cash back (reduces cash balance)</option>
+                      <option value="BANK">Bank transfer back (reduces bank balance)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-400">
+                      {form.refundMethod
+                        ? `The refund amount will be taken out of this shop's ${
+                            form.refundMethod === "BANK" ? "bank" : "cash"
+                          } in the cash book.`
+                        : "Use this if the customer already paid and you're handing money back. Otherwise it just lowers what they owe."}
+                    </p>
+                  </div>
+                )}
+
+                {/* Returns already recorded on this bill — undo a wrong one. */}
+                {form.invoiceId && existingReturns.length > 0 && (
+                  <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      Returns already recorded on this bill
+                    </div>
+                    <div className="space-y-1.5">
+                      {existingReturns.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                          <div>
+                            <span className="font-medium">{formatMoney(r.totalAmount)}</span>
+                            <span className="text-gray-400"> · {formatDate(r.createdAt)}</span>
+                            {r.refundMethod && (
+                              <span className="text-gray-400"> · refunded {r.refundMethod}</span>
+                            )}
+                            {r.reason && <span className="text-gray-400"> · {r.reason}</span>}
+                          </div>
+                          {canManage ? (
+                            <button
+                              type="button"
+                              onClick={() => deleteReturn(r.id)}
+                              className="shrink-0 text-red-600 hover:underline"
+                            >
+                              Delete
+                            </button>
+                          ) : (
+                            <span className="shrink-0 text-xs text-gray-400">admin only</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {!canManage && (
+                      <p className="mt-2 text-xs text-gray-400">
+                        Only the shop owner/admin can delete a wrong return.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
