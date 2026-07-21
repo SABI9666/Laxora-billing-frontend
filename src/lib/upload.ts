@@ -30,7 +30,11 @@ export async function uploadProductImage(file: File): Promise<string> {
     let message = `Upload failed (HTTP ${res.status})`;
     try {
       const data = await res.json();
-      if (data?.message) message = data.message;
+      // The backend returns errors as { error: "..." }; fall back to `message`
+      // just in case. Without reading `error`, the real reason (file too large,
+      // storage not configured, no permission) was hidden behind the generic
+      // HTTP-status text above.
+      if (data?.error || data?.message) message = data.error || data.message;
     } catch {
       /* non-JSON error body */
     }
