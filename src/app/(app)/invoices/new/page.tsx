@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import { uploadFile } from "@/lib/upload";
+import BillAttachments from "@/components/BillAttachments";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ItemPicker from "@/components/ItemPicker";
@@ -51,9 +51,7 @@ export default function NewInvoicePage() {
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   // Uploaded bill document (supplier purchase bill).
-  const [attachmentUrl, setAttachmentUrl] = useState("");
-  const [uploadingBill, setUploadingBill] = useState(false);
-  const [billError, setBillError] = useState("");
+  const [attachmentUrls, setAttachmentUrls] = useState<string[]>([]);
   // When on, the entered Rate already includes GST (tax is split out).
   const [taxInclusive, setTaxInclusive] = useState(false);
   const [lines, setLines] = useState<Line[]>([{ ...blankLine }]);
@@ -298,7 +296,9 @@ export default function NewInvoicePage() {
           discount: Number(discount) || 0,
           dueDate: dueDate || undefined,
           notes: notes || undefined,
-          attachmentUrl: attachmentUrl || undefined,
+          attachmentUrl: attachmentUrls[0] || undefined,
+          attachmentUrl2: attachmentUrls[1] || undefined,
+          attachmentUrl3: attachmentUrls[2] || undefined,
           taxInclusive,
           items: validLines.map((l) => ({
             itemId: l.itemId || undefined,
@@ -340,20 +340,6 @@ export default function NewInvoicePage() {
     }
   }
 
-  async function uploadBill(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingBill(true);
-    setBillError("");
-    try {
-      setAttachmentUrl(await uploadFile(file));
-    } catch (err) {
-      setBillError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploadingBill(false);
-      e.target.value = "";
-    }
-  }
 
   return (
     <div>
@@ -616,35 +602,19 @@ export default function NewInvoicePage() {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
-            <div className="mt-3 border-t border-gray-100 pt-3">
-              <label className="label">
-                {type === "PURCHASE" ? "Supplier's purchase bill" : "Attach bill / document"}{" "}
-                <span className="font-normal text-gray-400">(photo or PDF, optional)</span>
-              </label>
-              <input type="file" accept="image/*,application/pdf" onChange={uploadBill} className="block text-sm" />
-              {uploadingBill && <p className="mt-1 text-xs text-brand">Uploading…</p>}
-              {billError && <p className="mt-1 text-xs text-red-600">{billError}</p>}
-              {attachmentUrl && (
-                <p className="mt-1 text-xs">
-                  <a href={attachmentUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
-                    ✓ Bill attached — view
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => setAttachmentUrl("")}
-                    className="ml-3 text-red-600 hover:underline"
-                  >
-                    Remove
-                  </button>
-                </p>
-              )}
-              {type === "PURCHASE" && (
-                <p className="mt-1 text-xs text-gray-400">
-                  Saved on this purchase and linked to each product bought, so you can view the
-                  supplier&apos;s bill from the product later.
-                </p>
-              )}
-            </div>
+            <BillAttachments
+              urls={attachmentUrls}
+              onChange={setAttachmentUrls}
+              label={type === "PURCHASE" ? "Supplier's purchase bill" : "Attach bill / document"}
+              hint={
+                type === "PURCHASE" ? (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Saved on this purchase and the first file is linked to each product bought, so
+                    you can view the supplier&apos;s bill from the product later.
+                  </p>
+                ) : undefined
+              }
+            />
           </div>
           <div className="card w-full md:w-80">
             <div className="flex justify-between py-1 text-sm">
