@@ -84,6 +84,20 @@ export default function NewInvoicePage() {
   // A same-name party the backend found — ask before creating a duplicate.
   const [dupParty, setDupParty] = useState<Party | null>(null);
 
+  // Quick-add product (mirrors quick-add customer). newProductLine is the line
+  // index the new product should drop into once created.
+  const [newProductLine, setNewProductLine] = useState<number | null>(null);
+  const [newProduct, setNewProduct] = useState({
+    name: "",
+    unit: "PCS",
+    salePrice: "",
+    purchasePrice: "",
+    taxRate: "",
+    stockQty: "",
+  });
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [productError, setProductError] = useState("");
+
   function useExistingParty(p: Party) {
     setParties((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]));
     setPartyId(p.id);
@@ -116,6 +130,57 @@ export default function NewInvoicePage() {
       }
     } finally {
       setSavingParty(false);
+    }
+  }
+
+  function openNewProduct(i: number) {
+    setNewProductLine(i);
+    setNewProduct({ name: "", unit: "PCS", salePrice: "", purchasePrice: "", taxRate: "", stockQty: "" });
+    setProductError("");
+  }
+
+  async function createProduct(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!newProduct.name.trim()) {
+      setProductError("Enter a product name.");
+      return;
+    }
+    setSavingProduct(true);
+    setProductError("");
+    try {
+      const r = await api<{ item: Item }>("/api/items", {
+        method: "POST",
+        body: {
+          name: newProduct.name.trim(),
+          unit: newProduct.unit.trim() || "PCS",
+          salePrice: Number(newProduct.salePrice) || 0,
+          purchasePrice: Number(newProduct.purchasePrice) || 0,
+          taxRate: Number(newProduct.taxRate) || 0,
+          stockQty: Number(newProduct.stockQty) || 0,
+        },
+      });
+      const created = r.item;
+      // Add to the product list and drop it straight into the line that asked.
+      setItems((prev) => [created, ...prev]);
+      if (newProductLine != null) {
+        updateLine(newProductLine, {
+          itemId: created.id,
+          description: created.name,
+          rate: Number(type === "SALE" ? created.salePrice : created.purchasePrice),
+          taxRate: Number(created.taxRate),
+        });
+      }
+      setNewProductLine(null);
+    } catch (err) {
+      setProductError(
+        err instanceof ApiError
+          ? err.status === 403
+            ? "Only a manager or owner can add a new product."
+            : err.message
+          : "Failed to add product"
+      );
+    } finally {
+      setSavingProduct(false);
     }
   }
 
@@ -366,20 +431,30 @@ export default function NewInvoicePage() {
                 {lines.map((l, i) => (
                   <tr key={i}>
                     <td className="table-td">
-                      <div className="mb-1">
-                        <ItemPicker
-                          items={items.map((it) => ({
-                            id: it.id,
-                            name: it.name,
-                            sku: it.sku,
-                            unit: it.unit,
-                            price: Number(type === "SALE" ? it.salePrice : it.purchasePrice),
-                            stock: it.isService ? null : Number(it.stockQty),
-                            low: !it.isService && Number(it.stockQty) <= 0,
-                          }))}
-                          value={l.itemId}
-                          onSelect={(id) => pickItem(i, id)}
-                        />
+                      <div className="mb-1 flex items-start gap-2">
+                        <div className="flex-1">
+                          <ItemPicker
+                            items={items.map((it) => ({
+                              id: it.id,
+                              name: it.name,
+                              sku: it.sku,
+                              unit: it.unit,
+                              price: Number(type === "SALE" ? it.salePrice : it.purchasePrice),
+                              stock: it.isService ? null : Number(it.stockQty),
+                              low: !it.isService && Number(it.stockQty) <= 0,
+                            }))}
+                            value={l.itemId}
+                            onSelect={(id) => pickItem(i, id)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openNewProduct(i)}
+                          className="whitespace-nowrap pt-2 text-xs font-medium text-brand hover:underline"
+                          title="Add a product that isn't in your list yet"
+                        >
+                          + New product
+                        </button>
                       </div>
                       <input
                         className="input"
@@ -798,6 +873,93 @@ export default function NewInvoicePage() {
               </button>
               <button type="submit" className="btn-primary" disabled={savingParty}>
                 {savingParty ? "Saving…" : "Add & Select"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {newProductLine != null && (
+        <Modal title="Add New Product" onClose={() => setNewProductLine(null)}>
+          <form onSubmit={createProduct} className="space-y-4">
+            {productError && <div className="text-sm text-red-600">{productError}</div>}
+            <p className="text-sm text-gray-500">
+              Quickly add a product — it&apos;s saved to your list and dropped into this bill line.
+              You can fill in more details later from the Products page.
+            </p>
+            <div>
+              <label className="label">Product name</label>
+              <input
+                className="input"
+                value={newProduct.name}
+                onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Sale price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  value={newProduct.salePrice}
+                  onChange={(e) => setNewProduct({ ...newProduct, salePrice: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Purchase price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  value={newProduct.purchasePrice}
+                  onChange={(e) =>
+                    setNewProduct({ ...newProduct, purchasePrice: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className="label">Tax %</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  value={newProduct.taxRate}
+                  onChange={(e) => setNewProduct({ ...newProduct, taxRate: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Unit</label>
+                <input
+                  className="input"
+                  placeholder="PCS"
+                  value={newProduct.unit}
+                  onChange={(e) => setNewProduct({ ...newProduct, unit: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Opening stock</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  className="input"
+                  value={newProduct.stockQty}
+                  onChange={(e) => setNewProduct({ ...newProduct, stockQty: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setNewProductLine(null)}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary" disabled={savingProduct}>
+                {savingProduct ? "Saving…" : "Add & Select"}
               </button>
             </div>
           </form>
