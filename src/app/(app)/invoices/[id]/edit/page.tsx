@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import { uploadFile } from "@/lib/upload";
+import BillAttachments from "@/components/BillAttachments";
 import PageHeader from "@/components/PageHeader";
 import ItemPicker from "@/components/ItemPicker";
 
@@ -48,6 +48,8 @@ type Invoice = {
   amountPaid: string;
   notes?: string | null;
   attachmentUrl?: string | null;
+  attachmentUrl2?: string | null;
+  attachmentUrl3?: string | null;
   items: {
     itemId?: string | null;
     description: string;
@@ -74,8 +76,7 @@ export default function EditInvoicePage() {
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   const [taxInclusive, setTaxInclusive] = useState(false);
-  const [attachmentUrl, setAttachmentUrl] = useState("");
-  const [uploadingBill, setUploadingBill] = useState(false);
+  const [attachmentUrls, setAttachmentUrls] = useState<string[]>([]);
   const [lines, setLines] = useState<Line[]>([{ ...blankLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -106,7 +107,11 @@ export default function EditInvoicePage() {
       setPartyId(i.partyId);
       setDiscount(Number(i.discount) || 0);
       setNotes(i.notes || "");
-      setAttachmentUrl(i.attachmentUrl || "");
+      setAttachmentUrls(
+        [i.attachmentUrl, i.attachmentUrl2, i.attachmentUrl3].filter(
+          (u): u is string => !!u
+        )
+      );
       setDueDate(i.dueDate ? i.dueDate.slice(0, 10) : "");
       setPayAmount(round2(Number(i.total) - Number(i.amountPaid)));
       setLines(
@@ -183,7 +188,9 @@ export default function EditInvoicePage() {
           discount: Number(discount) || 0,
           dueDate: dueDate || undefined,
           notes: notes || undefined,
-          attachmentUrl: attachmentUrl || undefined,
+          attachmentUrl: attachmentUrls[0] || undefined,
+          attachmentUrl2: attachmentUrls[1] || undefined,
+          attachmentUrl3: attachmentUrls[2] || undefined,
           taxInclusive,
           items: validLines.map((l) => ({
             itemId: l.itemId || undefined,
@@ -260,19 +267,6 @@ export default function EditInvoicePage() {
     await reloadInvoice();
   }
 
-  async function uploadBill(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingBill(true);
-    try {
-      setAttachmentUrl(await uploadFile(file));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploadingBill(false);
-      e.target.value = "";
-    }
-  }
 
   if (!invoice) return <div className="text-gray-400">Loading…</div>;
 
@@ -457,28 +451,11 @@ export default function EditInvoicePage() {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
-            <div className="mt-3 border-t border-gray-100 pt-3">
-              <label className="label">
-                {type === "PURCHASE" ? "Supplier's purchase bill" : "Attach bill / document"}{" "}
-                <span className="font-normal text-gray-400">(photo or PDF, optional)</span>
-              </label>
-              <input type="file" accept="image/*,application/pdf" onChange={uploadBill} className="block text-sm" />
-              {uploadingBill && <p className="mt-1 text-xs text-brand">Uploading…</p>}
-              {attachmentUrl && (
-                <p className="mt-1 text-xs">
-                  <a href={attachmentUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
-                    ✓ Bill attached — view
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => setAttachmentUrl("")}
-                    className="ml-3 text-red-600 hover:underline"
-                  >
-                    Remove
-                  </button>
-                </p>
-              )}
-            </div>
+            <BillAttachments
+              urls={attachmentUrls}
+              onChange={setAttachmentUrls}
+              label={type === "PURCHASE" ? "Supplier's purchase bill" : "Attach bill / document"}
+            />
           </div>
           <div className="card w-full md:w-80">
             <div className="flex justify-between py-1 text-sm">
