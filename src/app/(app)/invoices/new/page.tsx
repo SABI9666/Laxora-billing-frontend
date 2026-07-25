@@ -582,13 +582,15 @@ export default function NewInvoicePage() {
             >
               + Add Line
             </button>
-            <label className="flex items-center gap-2 text-sm text-gray-600">
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
               <input
                 type="checkbox"
+                className="h-4 w-4 accent-amber-600"
                 checked={taxInclusive}
                 onChange={(e) => setTaxInclusive(e.target.checked)}
               />
-              Rate includes GST (tax-inclusive)
+              Prices include GST
+              <span className="font-normal text-amber-600">— tax is split out automatically</span>
             </label>
           </div>
         </div>
