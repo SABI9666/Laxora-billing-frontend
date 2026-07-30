@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { uploadProductImage } from "@/lib/upload";
+import { makeProductCode } from "@/lib/productCode";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
@@ -47,6 +48,7 @@ const empty = {
   name: "",
   categoryId: "",
   supplierId: "",
+  productNo: "",
   sku: "",
   barcode: "",
   brand: "",
@@ -126,6 +128,10 @@ export default function ItemsPage() {
       ...it,
       categoryId: it.categoryId || "",
       supplierId: it.supplierId || "",
+      // Recover the product number from a "BULB-009" style code.
+      productNo: (it.sku || "").includes("-")
+        ? (it.sku || "").split("-").pop() || ""
+        : "",
       barcode: it.barcode || "",
       brand: it.brand || "",
       wattage: it.wattage || "",
@@ -146,10 +152,21 @@ export default function ItemsPage() {
   }
 
   // Picking a main category clears any subcategory and makes the main the
-  // saved category until a subcategory is chosen.
+  // saved category until a subcategory is chosen. If a product number was
+  // entered, the product code follows the category (BULB + 009 → BULB-009).
   function pickMain(id: string) {
     setMainCategoryId(id);
-    setForm((f: any) => ({ ...f, categoryId: id }));
+    const catName = categories.find((c) => c.id === id)?.name;
+    setForm((f: any) => ({
+      ...f,
+      categoryId: id,
+      sku: f.productNo ? makeProductCode(catName, f.productNo) : f.sku,
+    }));
+  }
+  // Typing a product number rebuilds the code from the selected category.
+  function setProductNo(v: string) {
+    const catName = categories.find((c) => c.id === mainCategoryId)?.name;
+    setForm((f: any) => ({ ...f, productNo: v, sku: makeProductCode(catName, v) }));
   }
   // Picking a subcategory ("" means "use the main category only").
   function pickSub(id: string) {
@@ -160,8 +177,10 @@ export default function ItemsPage() {
     e.preventDefault();
     setSaving(true);
     try {
+      // productNo is a form-only helper (it lives inside the SKU code).
+      const { productNo: _productNo, ...formRest } = form;
       const body = {
-        ...form,
+        ...formRest,
         categoryId: form.categoryId || null,
         supplierId: form.supplierId || null,
         description: form.description || null,
@@ -274,6 +293,11 @@ export default function ItemsPage() {
                     <td className="table-td font-medium">
                       {it.name}
                       {it.brand ? <span className="ml-1 text-xs text-gray-400">{it.brand}</span> : null}
+                      {it.sku ? (
+                        <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-500">
+                          {it.sku}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="table-td text-gray-500">{it.category?.name || "—"}</td>
                     <td className="table-td">
@@ -406,14 +430,28 @@ export default function ItemsPage() {
               </select>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="label">Wattage / Model</label>
                 <input className="input" value={form.wattage} onChange={set("wattage")} placeholder="e.g. 9W" />
               </div>
               <div>
-                <label className="label">SKU</label>
-                <input className="input" value={form.sku} onChange={set("sku")} />
+                <label className="label">Product No.</label>
+                <input
+                  className="input"
+                  placeholder="e.g. 009"
+                  value={form.productNo}
+                  onChange={(e) => setProductNo(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Product Code (SKU)</label>
+                <input className="input" value={form.sku} onChange={set("sku")} placeholder="BULB-009" />
+                {form.productNo && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Built from category + number — editable.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="label">Barcode</label>
