@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import { makeProductCode } from "@/lib/productCode";
 import BillAttachments from "@/components/BillAttachments";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ItemPicker from "@/components/ItemPicker";
 
 type Party = { id: string; name: string; type: string; phone?: string | null; email?: string | null };
+type Category = { id: string; name: string; parentId?: string | null };
 type Item = {
   id: string;
   name: string;
@@ -92,7 +94,18 @@ export default function NewInvoicePage() {
     purchasePrice: "",
     taxRate: "",
     stockQty: "",
+    categoryId: "",
+    supplierId: "",
+    productNo: "",
   });
+  const [categories, setCategories] = useState<Category[]>([]);
+  const mainCategories = categories.filter((c) => !c.parentId);
+  const supplierList = parties.filter((p) => p.type === "SUPPLIER");
+  // Live product code, e.g. category BULB + number 009 → BULB-009.
+  const newProductCode = makeProductCode(
+    categories.find((c) => c.id === newProduct.categoryId)?.name,
+    newProduct.productNo
+  );
   const [savingProduct, setSavingProduct] = useState(false);
   const [productError, setProductError] = useState("");
 
@@ -133,7 +146,17 @@ export default function NewInvoicePage() {
 
   function openNewProduct(i: number) {
     setNewProductLine(i);
-    setNewProduct({ name: "", unit: "PCS", salePrice: "", purchasePrice: "", taxRate: "", stockQty: "" });
+    setNewProduct({
+      name: "",
+      unit: "PCS",
+      salePrice: "",
+      purchasePrice: "",
+      taxRate: "",
+      stockQty: "",
+      categoryId: "",
+      supplierId: "",
+      productNo: "",
+    });
     setProductError("");
   }
 
@@ -155,6 +178,9 @@ export default function NewInvoicePage() {
           purchasePrice: Number(newProduct.purchasePrice) || 0,
           taxRate: Number(newProduct.taxRate) || 0,
           stockQty: Number(newProduct.stockQty) || 0,
+          categoryId: newProduct.categoryId || null,
+          supplierId: newProduct.supplierId || null,
+          sku: newProductCode || undefined,
         },
       });
       const created = r.item;
@@ -185,6 +211,9 @@ export default function NewInvoicePage() {
   useEffect(() => {
     api<{ parties: Party[] }>("/api/parties").then((r) => setParties(r.parties));
     api<{ items: Item[] }>("/api/items").then((r) => setItems(r.items));
+    api<{ categories: Category[] }>("/api/categories")
+      .then((r) => setCategories(r.categories))
+      .catch(() => {});
   }, []);
 
   function updateLine(i: number, patch: Partial<Line>) {
@@ -868,6 +897,55 @@ export default function NewInvoicePage() {
                 required
                 autoFocus
               />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Category</label>
+                <select
+                  className="input"
+                  value={newProduct.categoryId}
+                  onChange={(e) => setNewProduct({ ...newProduct, categoryId: e.target.value })}
+                >
+                  <option value="">— None —</option>
+                  {mainCategories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Product number</label>
+                <input
+                  className="input"
+                  placeholder="e.g. 009"
+                  value={newProduct.productNo}
+                  onChange={(e) => setNewProduct({ ...newProduct, productNo: e.target.value })}
+                />
+                {newProductCode && (
+                  <p className="mt-1 text-xs font-semibold text-brand">
+                    Product code: {newProductCode}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="label">Supplier (who you buy this from)</label>
+              <select
+                className="input"
+                value={newProduct.supplierId}
+                onChange={(e) => setNewProduct({ ...newProduct, supplierId: e.target.value })}
+              >
+                <option value="">— None —</option>
+                {supplierList.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-400">
+                Linking the supplier feeds the Supplier Analysis report automatically.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
