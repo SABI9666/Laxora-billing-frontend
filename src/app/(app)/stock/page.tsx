@@ -22,7 +22,7 @@ type Movement = {
   reason?: string | null;
   reference?: string | null;
   createdAt: string;
-  item: { id: string; name: string; unit: string };
+  item: { id: string; name: string; sku?: string | null; unit: string };
 };
 type LowItem = {
   id: string;
@@ -195,7 +195,14 @@ export default function StockPage() {
                 {movements.map((m) => (
                   <tr key={m.id}>
                     <td className="table-td">{formatDate(m.createdAt)}</td>
-                    <td className="table-td font-medium">{m.item.name}</td>
+                    <td className="table-td">
+                      <span className="font-medium">{m.item.name}</span>
+                      {m.item.sku && (
+                        <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500">
+                          {m.item.sku}
+                        </span>
+                      )}
+                    </td>
                     <td className="table-td">
                       <span
                         className={`rounded px-2 py-0.5 text-xs font-medium ${

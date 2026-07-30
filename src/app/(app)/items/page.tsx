@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { uploadProductImage } from "@/lib/upload";
-import { makeProductCode } from "@/lib/productCode";
+import { makeProductCode, productNumberOf } from "@/lib/productCode";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
@@ -90,10 +90,14 @@ export default function ItemsPage() {
   // Live client-side search across name, brand, category, SKU, barcode, wattage.
   const term = search.trim().toLowerCase();
   const visibleItems = term
-    ? items.filter((it) =>
-        [it.name, it.brand, it.category?.name, it.sku, it.barcode, it.wattage]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(term))
+    ? items.filter(
+        (it) =>
+          [it.name, it.brand, it.category?.name, it.sku, it.barcode, it.wattage]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(term)) ||
+          // Bare product number: "9" finds BULB-009.
+          (/^#?\d+$/.test(term) &&
+            Number(term.replace(/^#/, "")) === Number(productNumberOf(it.sku) || NaN))
       )
     : items;
 
