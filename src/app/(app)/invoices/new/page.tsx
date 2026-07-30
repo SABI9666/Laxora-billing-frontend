@@ -16,6 +16,7 @@ type Item = {
   id: string;
   name: string;
   sku?: string | null;
+  barcode?: string | null;
   unit?: string | null;
   salePrice: string;
   purchasePrice: string;
@@ -453,6 +454,7 @@ export default function NewInvoicePage() {
                               id: it.id,
                               name: it.name,
                               sku: it.sku,
+                              barcode: it.barcode,
                               unit: it.unit,
                               price: Number(type === "SALE" ? it.salePrice : it.purchasePrice),
                               stock: it.isService ? null : Number(it.stockQty),

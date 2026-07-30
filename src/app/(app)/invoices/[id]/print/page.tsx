@@ -13,7 +13,7 @@ type Line = {
   rate: string;
   taxRate: string;
   amount: string;
-  item?: { hsn?: string | null; unit?: string | null } | null;
+  item?: { hsn?: string | null; unit?: string | null; sku?: string | null } | null;
 };
 type Invoice = {
   id: string;
@@ -173,7 +173,14 @@ export default function InvoicePrintPage() {
               return (
                 <tr key={l.id} className="border-b border-gray-200 align-top">
                   <td className="py-1.5 pr-1">{i + 1}</td>
-                  <td className="py-1.5 pr-2 font-medium">{l.description}</td>
+                  <td className="py-1.5 pr-2 font-medium">
+                    {l.description}
+                    {l.item?.sku && (
+                      <span className="block text-[10px] font-normal text-gray-500">
+                        Code: {l.item.sku}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-1.5 pr-2">{l.item?.hsn || "—"}</td>
                   <td className="py-1.5 pr-2 text-center">{gst}%</td>
                   <td className="py-1.5 pr-2 text-right">

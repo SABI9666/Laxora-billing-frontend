@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import { productMatchRank, searchProducts } from "@/lib/productCode";
 
 type Item = {
   id: string;
@@ -113,7 +114,8 @@ export default function PosPage() {
     e.preventDefault();
     const term = search.trim();
     if (!term) return;
-    const exact = items.find((i) => i.barcode === term || i.sku === term);
+    // Exact barcode / product code / product number match adds instantly.
+    const exact = items.find((i) => productMatchRank(term, i) === 0);
     if (exact) {
       addItem(exact);
       setSearch("");
@@ -149,14 +151,9 @@ export default function PosPage() {
     setLines((prev) => prev.filter((l) => l.itemId !== itemId));
   }
 
-  const filtered = search
-    ? items.filter(
-        (i) =>
-          i.name.toLowerCase().includes(search.toLowerCase()) ||
-          i.sku?.toLowerCase().includes(search.toLowerCase()) ||
-          i.barcode?.includes(search)
-      )
-    : items;
+  // Ranked search across name, product code, barcode and bare product number
+  // ("9" finds BULB-009) — best matches first.
+  const filtered = searchProducts(items, search);
 
   const subtotal = round2(lines.reduce((s, l) => s + l.quantity * l.rate, 0));
   const taxAmount = round2(

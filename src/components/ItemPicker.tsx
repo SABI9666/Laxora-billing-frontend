@@ -2,25 +2,28 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatMoney } from "@/lib/format";
+import { productNumberOf, searchProducts } from "@/lib/productCode";
 
 export type PickerItem = {
   id: string;
   name: string;
   sku?: string | null;
+  barcode?: string | null;
   unit?: string | null;
   price?: number | null;
   stock?: number | null;
   low?: boolean;
 };
 
-// A professional, accessible product picker: type any part of the name or SKU
-// to filter, navigate with ↑/↓, pick with Enter, close with Esc. Each row shows
-// the price and live stock (low stock in red). Replaces the plain <select>.
+// A professional, accessible product picker: type any part of the name, the
+// product code (SKU), the barcode, or just the product number ("9" finds
+// BULB-009) to filter. Navigate with ↑/↓, pick with Enter, close with Esc.
+// Each row shows the code, price and live stock (low stock in red).
 export default function ItemPicker({
   items,
   value,
   onSelect,
-  placeholder = "Search product by name or SKU…",
+  placeholder = "Search by name, code or product no…",
 }: {
   items: PickerItem[];
   value: string;
@@ -42,12 +45,8 @@ export default function ItemPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const term = q.trim().toLowerCase();
-  const filtered = (
-    term
-      ? items.filter((it) => `${it.name} ${it.sku ?? ""}`.toLowerCase().includes(term))
-      : items
-  ).slice(0, 60);
+  const term = q.trim();
+  const filtered = searchProducts(items, term).slice(0, 60);
 
   useEffect(() => {
     setActive(0);
@@ -108,6 +107,11 @@ export default function ItemPicker({
       <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">
         {open ? "🔍" : "▾"}
       </span>
+      {!open && selected?.sku && (
+        <span className="pointer-events-none absolute right-8 top-1/2 hidden -translate-y-1/2 rounded bg-brand-light px-1.5 py-0.5 font-mono text-[10px] font-semibold text-brand sm:inline">
+          {selected.sku}
+        </span>
+      )}
 
       {open && (
         <div
@@ -133,13 +137,20 @@ export default function ItemPicker({
               }`}
             >
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium text-slate-800">
-                  {it.name}
+                <span className="flex items-center gap-1.5">
+                  {it.sku && (
+                    <span className="shrink-0 rounded bg-brand-light px-1.5 py-0.5 font-mono text-[10px] font-semibold text-brand">
+                      {it.sku}
+                    </span>
+                  )}
+                  <span className="truncate text-sm font-medium text-slate-800">
+                    {it.name}
+                  </span>
                 </span>
                 {(it.sku || it.unit) && (
                   <span className="block truncate text-xs text-slate-400">
-                    {it.sku ? `SKU ${it.sku}` : ""}
-                    {it.sku && it.unit ? " · " : ""}
+                    {productNumberOf(it.sku) ? `No. ${productNumberOf(it.sku)}` : ""}
+                    {productNumberOf(it.sku) && it.unit ? " · " : ""}
                     {it.unit ? `per ${it.unit}` : ""}
                   </span>
                 )}
@@ -163,8 +174,16 @@ export default function ItemPicker({
             </button>
           ))}
           {filtered.length === 0 && (
-            <div className="px-3 py-3 text-sm text-slate-400">No products match “{q}”.</div>
+            <div className="px-3 py-3 text-sm text-slate-400">
+              No products match “{q}”.
+              <span className="mt-0.5 block text-xs">
+                Try the product number alone (e.g. 9) or part of the name.
+              </span>
+            </div>
           )}
+          <div className="sticky bottom-0 border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-400">
+            Search by name, code or product number — ↑↓ to move, Enter to pick.
+          </div>
         </div>
       )}
     </div>
