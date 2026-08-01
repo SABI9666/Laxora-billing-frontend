@@ -17,6 +17,7 @@ const nav = [
   { href: "/payments", label: "Payments", icon: "💰" },
   { href: "/ledgers", label: "Ledgers", icon: "📒" },
   { href: "/expenses", label: "Expenses", icon: "💸" },
+  { href: "/gst", label: "GST Filing", icon: "🧮" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
