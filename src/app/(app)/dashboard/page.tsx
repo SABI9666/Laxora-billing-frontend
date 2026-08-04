@@ -74,18 +74,47 @@ export default function DashboardPage() {
   const [activityDay, setActivityDay] = useState<string | null>(null);
   // Stat-card period: this month (default), this quarter, or this FY.
   const [period, setPeriod] = useState<"month" | "quarter" | "year">("month");
+  // Specific month in Monthly mode ("" = current month). Value is YYYY-MM.
+  const [pickedMonth, setPickedMonth] = useState("");
+
+  // Last 12 months for the dropdown, newest first: "August 2026", …
+  const monthOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [];
+    const d = new Date();
+    for (let i = 0; i < 12; i++) {
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      opts.push({
+        value: `${y}-${String(m + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString("en-IN", { month: "long", year: "numeric" }),
+      });
+      d.setMonth(m - 1);
+    }
+    return opts;
+  }, []);
+
   const periodLabel =
-    period === "quarter" ? "This Quarter" : period === "year" ? "This Year (FY)" : "This Month";
+    period === "quarter"
+      ? "This Quarter"
+      : period === "year"
+      ? "This Year (FY)"
+      : pickedMonth
+      ? monthOptions.find((o) => o.value === pickedMonth)?.label ?? "This Month"
+      : "This Month";
 
   useEffect(() => {
-    api<{ overview: Overview }>(`/api/dashboard/overview?period=${period}`)
+    const q =
+      period === "month" && pickedMonth
+        ? `?period=month&month=${pickedMonth}`
+        : `?period=${period}`;
+    api<{ overview: Overview }>(`/api/dashboard/overview${q}`)
       .then((r) => {
         setOv(r.overview);
         const last = r.overview.week[r.overview.week.length - 1];
         if (last) setActivityDay(last.day);
       })
       .catch(() => setStale(true));
-  }, [period]);
+  }, [period, pickedMonth]);
 
   useEffect(() => {
     api<{ invoices: Invoice[] }>("/api/dashboard/recent-invoices").then((r) =>
@@ -193,26 +222,42 @@ export default function DashboardPage() {
       )}
 
       {/* ===== Period selector: month / quarter / financial year ===== */}
-      <div className="flex items-center justify-end gap-1 rounded-full">
-        {(
-          [
-            ["month", "Monthly"],
-            ["quarter", "Quarterly"],
-            ["year", "Yearly (FY)"],
-          ] as const
-        ).map(([p, label]) => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-              period === p
-                ? "bg-brand text-white shadow"
-                : "bg-white text-gray-500 ring-1 ring-gray-200 hover:bg-gray-50"
-            }`}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {period === "month" && (
+          <select
+            className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 ring-1 ring-gray-200"
+            value={pickedMonth}
+            onChange={(e) => setPickedMonth(e.target.value)}
           >
-            {label}
-          </button>
-        ))}
+            {monthOptions.map((o, i) => (
+              <option key={o.value} value={i === 0 ? "" : o.value}>
+                {o.label}
+                {i === 0 ? " (current)" : ""}
+              </option>
+            ))}
+          </select>
+        )}
+        <div className="flex items-center gap-1">
+          {(
+            [
+              ["month", "Monthly"],
+              ["quarter", "Quarterly"],
+              ["year", "Yearly (FY)"],
+            ] as const
+          ).map(([p, label]) => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                period === p
+                  ? "bg-brand text-white shadow"
+                  : "bg-white text-gray-500 ring-1 ring-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ===== KPI row ===== */}
