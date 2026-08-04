@@ -72,15 +72,22 @@ export default function DashboardPage() {
   const [recent, setRecent] = useState<Invoice[]>([]);
   const [stale, setStale] = useState(false);
   const [activityDay, setActivityDay] = useState<string | null>(null);
+  // Stat-card period: this month (default), this quarter, or this FY.
+  const [period, setPeriod] = useState<"month" | "quarter" | "year">("month");
+  const periodLabel =
+    period === "quarter" ? "This Quarter" : period === "year" ? "This Year (FY)" : "This Month";
 
   useEffect(() => {
-    api<{ overview: Overview }>("/api/dashboard/overview")
+    api<{ overview: Overview }>(`/api/dashboard/overview?period=${period}`)
       .then((r) => {
         setOv(r.overview);
         const last = r.overview.week[r.overview.week.length - 1];
         if (last) setActivityDay(last.day);
       })
       .catch(() => setStale(true));
+  }, [period]);
+
+  useEffect(() => {
     api<{ invoices: Invoice[] }>("/api/dashboard/recent-invoices").then((r) =>
       setRecent(r.invoices)
     );
@@ -185,19 +192,42 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* ===== Period selector: month / quarter / financial year ===== */}
+      <div className="flex items-center justify-end gap-1 rounded-full">
+        {(
+          [
+            ["month", "Monthly"],
+            ["quarter", "Quarterly"],
+            ["year", "Yearly (FY)"],
+          ] as const
+        ).map(([p, label]) => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+              period === p
+                ? "bg-brand text-white shadow"
+                : "bg-white text-gray-500 ring-1 ring-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* ===== KPI row ===== */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon="📈"
           iconBg="bg-indigo-50"
-          label="Sales · This Month"
+          label={`Sales · ${periodLabel}`}
           value={ov ? formatMoney(ov.month.sales) : "—"}
           sub={ov ? `${ov.month.bills} bills raised` : ""}
         />
         <KpiCard
           icon={monthProfitUp ? "💹" : "📉"}
           iconBg={monthProfitUp ? "bg-emerald-50" : "bg-rose-50"}
-          label={monthProfitUp ? "Net Profit · This Month" : "Net Loss · This Month"}
+          label={monthProfitUp ? `Net Profit · ${periodLabel}` : `Net Loss · ${periodLabel}`}
           value={ov ? formatMoney(Math.abs(ov.month.profit)) : "—"}
           valueClass={monthProfitUp ? "text-emerald-600" : "text-rose-600"}
           sub={
