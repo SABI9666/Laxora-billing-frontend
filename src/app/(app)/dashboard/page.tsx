@@ -37,6 +37,7 @@ type PeriodFigures = {
 type Overview = {
   today: PeriodFigures;
   month: PeriodFigures;
+  prev?: PeriodFigures;
   pending: {
     toReceive: number;
     receivableBills: number;
@@ -149,6 +150,19 @@ export default function DashboardPage() {
   );
   const selected = week.find((d) => d.day === activityDay) ?? week[week.length - 1];
   const monthProfitUp = (ov?.month.profit ?? 0) >= 0;
+
+  // "vs last period" comparison for the Sales / Profit cards.
+  const prevName =
+    period === "quarter" ? "last quarter" : period === "year" ? "last FY" : "last month";
+  const compare = (cur: number, prevVal?: number) => {
+    if (prevVal === undefined) return "";
+    const base = `${prevName} ${formatMoney(prevVal)}`;
+    if (!prevVal) return base;
+    const pct = Math.round(((cur - prevVal) / Math.abs(prevVal)) * 100);
+    return `${base} (${pct >= 0 ? "▲" : "▼"}${Math.abs(pct)}%)`;
+  };
+  const salesCompare = ov?.prev ? compare(ov.month.sales, ov.prev.sales) : "";
+  const profitCompare = ov?.prev ? compare(ov.month.profit, ov.prev.profit) : "";
 
   return (
     <div className="space-y-6">
@@ -267,7 +281,11 @@ export default function DashboardPage() {
           iconBg="bg-indigo-50"
           label={`Sales · ${periodLabel}`}
           value={ov ? formatMoney(ov.month.sales) : "—"}
-          sub={ov ? `${ov.month.bills} bills raised` : ""}
+          sub={
+            ov
+              ? `${ov.month.bills} bills raised${salesCompare ? ` · ${salesCompare}` : ""}`
+              : ""
+          }
         />
         <KpiCard
           icon={monthProfitUp ? "💹" : "📉"}
@@ -277,7 +295,8 @@ export default function DashboardPage() {
           valueClass={monthProfitUp ? "text-emerald-600" : "text-rose-600"}
           sub={
             ov
-              ? `after ${formatMoney(ov.month.cogs)} cost · ${formatMoney(ov.month.expenses)} expenses`
+              ? profitCompare ||
+                `after ${formatMoney(ov.month.cogs)} cost · ${formatMoney(ov.month.expenses)} expenses`
               : ""
           }
           trend={ov ? (monthProfitUp ? "up" : "down") : undefined}
