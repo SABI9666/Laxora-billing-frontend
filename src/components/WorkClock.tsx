@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { startActivityTracking, isActivelyWorking } from "@/lib/activity";
 
 // "Time worked in application" card for the dashboard: a clock ring with
 // today's hours, plus the last 7 days of time worked and entries made
@@ -60,12 +61,14 @@ export default function WorkClock() {
           setTick(0);
         })
         .catch(() => {});
+    startActivityTracking();
     load();
-    // Tick the visible clock forward each minute; resync with the server
-    // every 5 minutes (the heartbeat keeps the server side up to date).
+    // Tick the visible clock forward each minute while the user is actively
+    // working (same rule as the heartbeat); resync with the server every
+    // 5 minutes.
     let beats = 0;
     const id = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
+      if (!isActivelyWorking()) return;
       beats += 1;
       if (beats % 5 === 0) load();
       else setTick((t) => t + 60);
@@ -99,8 +102,9 @@ export default function WorkClock() {
         </span>
       </div>
       <p className="mb-4 text-xs text-slate-400">
-        How long the application was open and how many entries were made — edits
-        included. Counted only while the app is on screen.
+        Time actively spent in the application — clicking, typing and moving
+        around all count, edits included. The clock pauses when the app is left
+        open untouched or in the background.
       </p>
 
       <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-stretch">

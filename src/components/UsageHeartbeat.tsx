@@ -2,14 +2,18 @@
 
 import { useEffect } from "react";
 import { api } from "@/lib/api";
+import { startActivityTracking, isActivelyWorking } from "@/lib/activity";
 
-// Tells the backend "the app is open right now" once a minute while this tab
-// is visible. The backend adds the minutes up per day, which powers the
-// "time worked in application" clock on the dashboard.
+// Tells the backend "the shop is working in the app right now" once a minute.
+// A minute counts when the tab is on screen AND the user has interacted with
+// the app recently — clicking menus, typing, scrolling all keep the clock
+// running; leaving the app open untouched does not. Powers the dashboard's
+// "time worked in application" clock.
 export default function UsageHeartbeat() {
   useEffect(() => {
+    startActivityTracking();
     const ping = () => {
-      if (document.visibilityState !== "visible") return;
+      if (!isActivelyWorking()) return;
       api("/api/usage/heartbeat", { method: "POST" }).catch(() => {
         // Ignore — an offline blip must never disturb the user's work.
       });
