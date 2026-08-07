@@ -21,12 +21,17 @@ type Payment = {
 };
 
 const METHODS = ["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"];
+// Cash <-> bank transfers. They are not money in or money out — they only move
+// money between the shop's cash drawer and its bank account.
+const TO_BANK = "Bank Deposit";
+const TO_CASH = "Bank Withdrawal";
+const TRANSFER_PURPOSES = [TO_BANK, TO_CASH];
 // Payment-voucher (money out) purposes.
 const OUT_PURPOSES = [
   "Supplier Payment",
   "Expense",
-  "Bank Deposit",
-  "Bank Withdrawal",
+  TO_BANK,
+  TO_CASH,
   "Other",
 ];
 // Credit-voucher (money in) purposes. "Customer Receipt" settles a customer's
@@ -103,7 +108,7 @@ export default function PaymentsPage() {
   const isCustomerReceipt = isCredit && form.purpose === "Customer Receipt";
   const isServiceIncome = isCredit && IN_INCOME_PURPOSES.includes(form.purpose);
   const needsParty = isCustomerReceipt || isSupplierPay;
-  const isTransfer = form.purpose === "Bank Deposit" || form.purpose === "Bank Withdrawal";
+  const isTransfer = TRANSFER_PURPOSES.includes(form.purpose);
 
   const splitOn = form.split && !isTransfer;
   const splitTotal = (Number(form.cashAmount) || 0) + (Number(form.bankAmount) || 0);
@@ -162,12 +167,19 @@ export default function PaymentsPage() {
     await load();
   }
 
-  const totalIn = payments
-    .filter((p) => (p.direction ?? "IN") === "IN")
-    .reduce((s, p) => s + Number(p.amount), 0);
-  const totalOut = payments
-    .filter((p) => p.direction === "OUT")
-    .reduce((s, p) => s + Number(p.amount), 0);
+  // Transfers are excluded from money in / money out — a cash deposit does not
+  // leave the business, it just moves from the cash drawer into the bank.
+  const isTransferVoucher = (p: Payment) =>
+    !!p.purpose && TRANSFER_PURPOSES.includes(p.purpose);
+  const sum = (rows: Payment[]) => rows.reduce((s, p) => s + Number(p.amount), 0);
+  const totalIn = sum(
+    payments.filter((p) => !isTransferVoucher(p) && (p.direction ?? "IN") === "IN")
+  );
+  const totalOut = sum(
+    payments.filter((p) => !isTransferVoucher(p) && p.direction === "OUT")
+  );
+  const totalToBank = sum(payments.filter((p) => p.purpose === TO_BANK));
+  const totalToCash = sum(payments.filter((p) => p.purpose === TO_CASH));
 
   return (
     <div>
@@ -199,6 +211,16 @@ export default function PaymentsPage() {
         <span className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
           Money out: <b>{formatMoney(totalOut)}</b>
         </span>
+        {totalToBank > 0 && (
+          <span className="rounded-lg bg-blue-50 px-4 py-2 text-sm text-blue-700">
+            Cash deposited into bank: <b>{formatMoney(totalToBank)}</b>
+          </span>
+        )}
+        {totalToCash > 0 && (
+          <span className="rounded-lg bg-blue-50 px-4 py-2 text-sm text-blue-700">
+            Withdrawn from bank as cash: <b>{formatMoney(totalToCash)}</b>
+          </span>
+        )}
       </div>
 
       <div className="card p-0">
@@ -218,16 +240,25 @@ export default function PaymentsPage() {
             <tbody className="divide-y divide-gray-100">
               {payments.map((p) => {
                 const isIn = (p.direction ?? "IN") === "IN";
+                const transfer = isTransferVoucher(p);
                 return (
                   <tr key={p.id}>
                     <td className="table-td">{formatDate(p.paymentDate)}</td>
                     <td className="table-td">
                       <span
                         className={`rounded px-2 py-0.5 text-xs font-medium ${
-                          isIn ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                          transfer
+                            ? "bg-blue-100 text-blue-700"
+                            : isIn
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-700"
                         }`}
                       >
-                        {isIn ? "Credit (In)" : "Payment (Out)"}
+                        {transfer
+                          ? "Transfer"
+                          : isIn
+                          ? "Credit (In)"
+                          : "Payment (Out)"}
                       </span>
                     </td>
                     <td className="table-td font-medium">
@@ -236,13 +267,23 @@ export default function PaymentsPage() {
                     <td className="table-td text-gray-500">
                       {p.invoice?.invoiceNumber ?? (p.party ? p.purpose ?? "—" : "—")}
                     </td>
-                    <td className="table-td">{p.method}</td>
+                    <td className="table-td">
+                      {transfer
+                        ? p.purpose === TO_BANK
+                          ? "CASH → BANK"
+                          : "BANK → CASH"
+                        : p.method}
+                    </td>
                     <td
                       className={`table-td text-right font-semibold ${
-                        isIn ? "text-green-700" : "text-red-600"
+                        transfer
+                          ? "text-blue-700"
+                          : isIn
+                          ? "text-green-700"
+                          : "text-red-600"
                       }`}
                     >
-                      {isIn ? "+" : "−"}
+                      {transfer ? "⇄ " : isIn ? "+" : "−"}
                       {formatMoney(p.amount)}
                     </td>
                     <td className="table-td text-right">
@@ -389,7 +430,13 @@ export default function PaymentsPage() {
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="label">Amount</label>
+                  <label className="label">
+                    {isTransfer
+                      ? form.purpose === TO_BANK
+                        ? "Cash to deposit into the bank"
+                        : "Cash to take out of the bank"
+                      : "Amount"}
+                  </label>
                   <input
                     type="number"
                     step="0.01"
