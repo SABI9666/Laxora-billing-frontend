@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
+import WorkClock from "@/components/WorkClock";
 
 type Activity = {
   productsAdded: number;
@@ -442,6 +443,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ===== Time worked in the application ===== */}
+      <WorkClock />
 
       {/* ===== Recent invoices ===== */}
       <div className="card p-0">
