@@ -7,6 +7,7 @@ import { uploadProductImage } from "@/lib/upload";
 import { makeProductCode, productNumberOf } from "@/lib/productCode";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import ProductHistory from "@/components/ProductHistory";
 
 type Category = {
   id: string;
@@ -82,6 +83,8 @@ export default function ItemsPage() {
   const [mainCategoryId, setMainCategoryId] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  // Product whose full sale/purchase history is open in a modal.
+  const [historyItem, setHistoryItem] = useState<Item | null>(null);
   const [search, setSearch] = useState("");
 
   const mainCategories = categories.filter((c) => !c.parentId);
@@ -326,6 +329,13 @@ export default function ItemsPage() {
                     </td>
                     <td className="table-td text-right">
                       <button
+                        onClick={() => setHistoryItem(it)}
+                        className="mr-3 text-slate-500 hover:text-brand hover:underline"
+                        title="When was this sold and purchased — full details"
+                      >
+                        📜 History
+                      </button>
+                      <button
                         onClick={() => openEdit(it)}
                         className="mr-3 text-brand hover:underline"
                       >
@@ -352,6 +362,14 @@ export default function ItemsPage() {
           </table>
         </div>
       </div>
+
+      {historyItem && (
+        <ProductHistory
+          itemId={historyItem.id}
+          itemName={historyItem.name}
+          onClose={() => setHistoryItem(null)}
+        />
+      )}
 
       {open && (
         <Modal title={editing ? "Edit Product" : "Add Product"} onClose={() => setOpen(false)}>
