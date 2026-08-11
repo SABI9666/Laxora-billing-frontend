@@ -67,20 +67,23 @@ export default function ShopSwitcher() {
   return (
     <div className="px-3 pb-3">
       <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-400">
-        Active shop
+        Active shop — tap to switch
       </label>
-      <select
-        className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm"
-        value={active}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {memberships.map((m) => (
-          <option key={m.business.id} value={m.business.id}>
-            {m.business.name}
-            {m.business.code ? ` (${m.business.code})` : ""}
-          </option>
-        ))}
-      </select>
+      <div className="flex items-center gap-2 rounded-xl border-2 border-brand/40 bg-brand-light/30 px-2 py-2">
+        <span className="text-base">🏪</span>
+        <select
+          className="w-full cursor-pointer bg-transparent text-sm font-semibold text-slate-800 outline-none"
+          value={active}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {memberships.map((m) => (
+            <option key={m.business.id} value={m.business.id}>
+              {m.business.name}
+              {m.business.code ? ` (${m.business.code})` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
