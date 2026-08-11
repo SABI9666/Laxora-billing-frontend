@@ -23,13 +23,20 @@ export default function LoginPage() {
         body: { email, password },
       });
       setToken(res.token);
-      // Fetch the user's businesses to set the active one.
+      // Fetch the user's shops. One shop → straight to the dashboard; several
+      // shops (same staff running e.g. Laxora Peravoor + Laxora Decorative)
+      // → let them pick which shop to work in.
       const me = await api<{
         user: { memberships: { business: { id: string } }[] };
       }>("/api/auth/me");
-      const first = me.user.memberships[0]?.business.id;
-      if (first) setBusinessId(first);
-      router.replace("/dashboard");
+      const memberships = me.user.memberships;
+      if (memberships.length > 1) {
+        router.replace("/select-shop");
+      } else {
+        const first = memberships[0]?.business.id;
+        if (first) setBusinessId(first);
+        router.replace("/dashboard");
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login failed");
     } finally {
