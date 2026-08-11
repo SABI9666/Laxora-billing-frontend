@@ -47,9 +47,15 @@ export default function StockPage() {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [low, setLow] = useState<LowItem[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [shops, setShops] = useState<Shop[]>([]);
+  // Transfer destinations: internal = my own other shops (same staff, e.g.
+  // Peravoor ↔ Decorative); external = other franchise shops we don't run.
+  const [targets, setTargets] = useState<{ internal: Shop[]; external: Shop[] }>({
+    internal: [],
+    external: [],
+  });
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [transferMode, setTransferMode] = useState<"internal" | "external">("internal");
   const [error, setError] = useState("");
 
   const [adjust, setAdjust] = useState({ itemId: "", type: "IN", quantity: 0, reason: "" });
@@ -99,10 +105,12 @@ export default function StockPage() {
     setMovements(m.movements);
     setLow(l.items);
     setItems(it.items.filter((x) => x));
-    // Other shops in the franchise (for transfers).
+    // Where can we transfer stock? Internal (own shops) + external (franchise).
     try {
-      const me = await api<{ user: { memberships: { business: Shop }[] } }>("/api/auth/me");
-      setShops(me.user.memberships.map((x) => x.business));
+      const t = await api<{ internal: Shop[]; external: Shop[] }>(
+        "/api/stock/transfer-targets"
+      );
+      setTargets(t);
     } catch {
       /* ignore */
     }
@@ -373,8 +381,48 @@ export default function StockPage() {
       )}
 
       {transferOpen && (
-        <Modal title="Transfer Stock to Another Shop" onClose={() => setTransferOpen(false)}>
+        <Modal title="Transfer Stock" onClose={() => setTransferOpen(false)}>
           <form onSubmit={submitTransfer} className="space-y-4">
+            {/* Internal (my shops) vs External (other franchise shops) */}
+            <div>
+              <label className="label">Transfer type</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransferMode("internal");
+                    setTransfer({ ...transfer, toBusinessId: "" });
+                  }}
+                  className={`rounded-xl border-2 px-3 py-2 text-left text-sm transition ${
+                    transferMode === "internal"
+                      ? "border-brand bg-brand-light/40 font-semibold text-brand"
+                      : "border-slate-200 bg-white text-slate-600"
+                  }`}
+                >
+                  🏠 Internal
+                  <span className="block text-xs font-normal text-slate-400">
+                    Between my own shops
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransferMode("external");
+                    setTransfer({ ...transfer, toBusinessId: "" });
+                  }}
+                  className={`rounded-xl border-2 px-3 py-2 text-left text-sm transition ${
+                    transferMode === "external"
+                      ? "border-brand bg-brand-light/40 font-semibold text-brand"
+                      : "border-slate-200 bg-white text-slate-600"
+                  }`}
+                >
+                  🚚 External
+                  <span className="block text-xs font-normal text-slate-400">
+                    To other franchise shops
+                  </span>
+                </button>
+              </div>
+            </div>
             <div>
               <label className="label">Product</label>
               <select
@@ -400,13 +448,20 @@ export default function StockPage() {
                 required
               >
                 <option value="">Select shop…</option>
-                {shops.map((s) => (
+                {targets[transferMode].map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                     {s.code ? ` (${s.code})` : ""}
                   </option>
                 ))}
               </select>
+              {targets[transferMode].length === 0 && (
+                <p className="mt-1 text-xs text-amber-600">
+                  {transferMode === "internal"
+                    ? "No other shop is linked to your login yet — ask your admin to give this login access to the other shop."
+                    : "No other franchise shops available to transfer to."}
+                </p>
+              )}
             </div>
             <div>
               <label className="label">Quantity</label>
