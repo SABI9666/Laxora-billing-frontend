@@ -40,7 +40,7 @@ export default function PosPage() {
 
   // Quick-add customer
   const [showNewParty, setShowNewParty] = useState(false);
-  const [newParty, setNewParty] = useState({ name: "", phone: "" });
+  const [newParty, setNewParty] = useState({ name: "", phone: "", gstin: "" });
   const [savingParty, setSavingParty] = useState(false);
 
   async function createParty(e: React.FormEvent) {
@@ -49,12 +49,18 @@ export default function PosPage() {
     try {
       const r = await api<{ party: Party }>("/api/parties", {
         method: "POST",
-        body: { name: newParty.name.trim(), phone: newParty.phone || undefined, type: "CUSTOMER" },
+        body: {
+          name: newParty.name.trim(),
+          phone: newParty.phone || undefined,
+          // GST number makes this customer's bills B2B on the GST report.
+          gstin: newParty.gstin.trim().toUpperCase() || undefined,
+          type: "CUSTOMER",
+        },
       });
       setParties((prev) => [...prev, r.party]);
       setPartyId(r.party.id);
       setShowNewParty(false);
-      setNewParty({ name: "", phone: "" });
+      setNewParty({ name: "", phone: "", gstin: "" });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to add customer");
     } finally {
@@ -383,6 +389,19 @@ export default function PosPage() {
                 value={newParty.phone}
                 onChange={(e) => setNewParty({ ...newParty, phone: e.target.value })}
               />
+            </div>
+            <div>
+              <label className="label">GSTIN (optional — for B2B billing)</label>
+              <input
+                className="input uppercase"
+                placeholder="e.g. 32ABCDE1234F1Z5"
+                maxLength={15}
+                value={newParty.gstin}
+                onChange={(e) => setNewParty({ ...newParty, gstin: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                With a GSTIN the bill is reported as B2B in the GST report; without it, B2C.
+              </p>
             </div>
             <div className="flex justify-end gap-3">
               <button

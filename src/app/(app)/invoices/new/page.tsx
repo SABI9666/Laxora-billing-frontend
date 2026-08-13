@@ -80,7 +80,7 @@ export default function NewInvoicePage() {
 
   // Quick-add customer
   const [showNewParty, setShowNewParty] = useState(false);
-  const [newParty, setNewParty] = useState({ name: "", phone: "", email: "" });
+  const [newParty, setNewParty] = useState({ name: "", phone: "", email: "", gstin: "" });
   const [savingParty, setSavingParty] = useState(false);
   // A same-name party the backend found — ask before creating a duplicate.
   const [dupParty, setDupParty] = useState<Party | null>(null);
@@ -115,7 +115,7 @@ export default function NewInvoicePage() {
     setPartyId(p.id);
     setShowNewParty(false);
     setDupParty(null);
-    setNewParty({ name: "", phone: "", email: "" });
+    setNewParty({ name: "", phone: "", email: "", gstin: "" });
   }
 
   async function createParty(e?: React.FormEvent, force = false) {
@@ -128,6 +128,8 @@ export default function NewInvoicePage() {
           name: newParty.name.trim(),
           phone: newParty.phone || undefined,
           email: newParty.email || undefined,
+          // GST number makes the sale B2B on the GST report.
+          gstin: newParty.gstin.trim().toUpperCase() || undefined,
           type: partyType,
           force,
         },
@@ -864,6 +866,19 @@ export default function NewInvoicePage() {
                   value={newParty.email}
                   onChange={(e) => setNewParty({ ...newParty, email: e.target.value })}
                 />
+              </div>
+              <div className="col-span-2">
+                <label className="label">GSTIN (optional — for B2B billing)</label>
+                <input
+                  className="input uppercase"
+                  placeholder="e.g. 32ABCDE1234F1Z5"
+                  maxLength={15}
+                  value={newParty.gstin}
+                  onChange={(e) => setNewParty({ ...newParty, gstin: e.target.value })}
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  With a GSTIN the bill is reported as B2B in the GST report; without it, B2C.
+                </p>
               </div>
             </div>
             <div className="flex justify-end gap-3">

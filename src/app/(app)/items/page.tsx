@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { uploadProductImage } from "@/lib/upload";
 import { makeProductCode, productNumberOf } from "@/lib/productCode";
@@ -82,6 +82,9 @@ export default function ItemsPage() {
   // subcategory if one is chosen, otherwise the main category).
   const [mainCategoryId, setMainCategoryId] = useState("");
   const [saving, setSaving] = useState(false);
+  // Shown inside the modal when a save fails — without this, a failed save
+  // left the dialog open with no feedback at all.
+  const [saveError, setSaveError] = useState("");
   const [notice, setNotice] = useState("");
   // Product whose full sale/purchase history is open in a modal.
   const [historyItem, setHistoryItem] = useState<Item | null>(null);
@@ -122,6 +125,7 @@ export default function ItemsPage() {
     setEditing(null);
     setForm(empty);
     setMainCategoryId("");
+    setSaveError("");
     setOpen(true);
   }
   function openEdit(it: Item) {
@@ -155,6 +159,7 @@ export default function ItemsPage() {
       stockQty: Number(it.stockQty),
       lowStockAlert: Number(it.lowStockAlert),
     });
+    setSaveError("");
     setOpen(true);
   }
 
@@ -183,6 +188,7 @@ export default function ItemsPage() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setSaveError("");
     try {
       // productNo is a form-only helper (it lives inside the SKU code).
       const { productNo: _productNo, ...formRest } = form;
@@ -216,6 +222,21 @@ export default function ItemsPage() {
       }
       setOpen(false);
       await load();
+    } catch (err) {
+      // Surface exactly why the save failed (e.g. which field was rejected).
+      if (err instanceof ApiError) {
+        const details = err.details as
+          | { fieldErrors?: Record<string, string[]> }
+          | undefined;
+        const fields = details?.fieldErrors
+          ? Object.entries(details.fieldErrors)
+              .map(([k, v]) => `${k}: ${v.join(", ")}`)
+              .join(" · ")
+          : "";
+        setSaveError(fields ? `${err.message} — ${fields}` : err.message);
+      } else {
+        setSaveError("Could not save. Please check your internet connection and try again.");
+      }
     } finally {
       setSaving(false);
     }
@@ -558,6 +579,11 @@ export default function ItemsPage() {
               </span>
             </label>
 
+            {saveError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {saveError}
+              </div>
+            )}
             <div className="flex justify-end gap-3">
               <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>
                 Cancel
