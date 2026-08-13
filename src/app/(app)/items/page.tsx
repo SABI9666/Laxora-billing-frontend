@@ -139,6 +139,9 @@ export default function ItemsPage() {
       ...it,
       categoryId: it.categoryId || "",
       supplierId: it.supplierId || "",
+      // A product saved without a code/barcode has null here — normalise to
+      // "" so the update never sends null for a plain text field.
+      sku: it.sku || "",
       // Recover the product number from a "BULB-009" style code.
       productNo: (it.sku || "").includes("-")
         ? (it.sku || "").split("-").pop() || ""
