@@ -110,7 +110,10 @@ function PriceChange({ label, oldV, newV }: { label: string; oldV: unknown; newV
           )}
         </>
       ) : (
-        <span className="font-bold text-gray-900">set to {formatMoney(Number(newV))}</span>
+        <>
+          <span className="font-bold text-gray-900">{formatMoney(Number(newV))}</span>
+          <span className="text-xs text-gray-400">(first recorded price)</span>
+        </>
       )}
     </div>
   );
@@ -342,7 +345,10 @@ export default function EditHistoryPage() {
                                       </>
                                     ) : (
                                       <span className="font-semibold text-gray-900">
-                                        set to {valueText(k, r.changes[k])}
+                                        {valueText(k, r.changes[k])}{" "}
+                                        <span className="text-xs font-normal text-gray-400">
+                                          (earlier value not recorded)
+                                        </span>
                                       </span>
                                     )}
                                   </div>
