@@ -63,6 +63,7 @@ const empty = {
   stockQty: 0,
   lowStockAlert: 0,
   isService: false,
+  reason: "",
   description: "",
   imageUrl: "",
   imageUrl2: "",
@@ -211,6 +212,8 @@ export default function ItemsPage() {
         stockQty: Number(form.stockQty),
         lowStockAlert: Number(form.lowStockAlert),
         isService: !!form.isService,
+        // Why the change was made — shown on the Edit History page.
+        reason: form.reason?.trim() || undefined,
       };
       if (editing) {
         const r = await api<{ pending?: boolean }>(`/api/items/${editing.id}`, {
@@ -582,6 +585,20 @@ export default function ItemsPage() {
               </span>
             </label>
 
+            {editing && (
+              <div>
+                <label className="label">Reason for this change (optional)</label>
+                <input
+                  className="input"
+                  placeholder="e.g. supplier rate increased"
+                  value={form.reason}
+                  onChange={set("reason")}
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  Saved with the edit and shown on the Edit History page.
+                </p>
+              </div>
+            )}
             {saveError && (
               <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
                 {saveError}
