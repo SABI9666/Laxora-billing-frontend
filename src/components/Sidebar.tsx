@@ -11,6 +11,7 @@ const nav = [
   { href: "/invoices", label: "Invoices", icon: "🧾" },
   { href: "/online-orders", label: "Online Orders", icon: "🌐" },
   { href: "/items", label: "Products", icon: "💡" },
+  { href: "/edit-history", label: "Edit History", icon: "📝" },
   { href: "/categories", label: "Categories", icon: "🏷️" },
   { href: "/stock", label: "Stock", icon: "📦" },
   { href: "/parties", label: "Customers & Suppliers", icon: "👥" },
