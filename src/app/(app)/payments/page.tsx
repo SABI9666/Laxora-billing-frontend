@@ -377,13 +377,19 @@ export default function PaymentsPage() {
                   value={form.invoiceId}
                   onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
                 >
-                  <option value="">— Not linked to a bill —</option>
+                  <option value="">— Auto-adjust against oldest pending bills —</option>
                   {invoices.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.invoiceNumber} (due {formatMoney(Number(i.total) - Number(i.amountPaid))})
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-gray-400">
+                  Leave on auto-adjust and the amount clears this{" "}
+                  {isCredit ? "customer" : "supplier"}&apos;s pending bills oldest first —
+                  part payments reduce the due, full payments remove the bill from
+                  pending automatically.
+                </p>
               </div>
             )}
 
