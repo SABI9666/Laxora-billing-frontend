@@ -51,6 +51,7 @@ export default function NewInvoicePage() {
   const [type, setType] = useState<"SALE" | "PURCHASE">("SALE");
   const [partyId, setPartyId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [estimateNo, setEstimateNo] = useState("");
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   // Uploaded bill document (supplier purchase bill).
@@ -328,6 +329,7 @@ export default function NewInvoicePage() {
           discount: Number(discount) || 0,
           dueDate: dueDate || undefined,
           notes: notes || undefined,
+          estimateNo: estimateNo.trim() || undefined,
           attachmentUrl: attachmentUrls[0] || undefined,
           attachmentUrl2: attachmentUrls[1] || undefined,
           attachmentUrl3: attachmentUrls[2] || undefined,
@@ -429,6 +431,19 @@ export default function NewInvoicePage() {
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
+          </div>
+          <div>
+            <label className="label">Estimate No. (optional)</label>
+            <input
+              className="input"
+              placeholder="e.g. EST-104"
+              maxLength={40}
+              value={estimateNo}
+              onChange={(e) => setEstimateNo(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              The quotation/estimate this bill was made from — printed on the invoice.
+            </p>
           </div>
         </div>
 
