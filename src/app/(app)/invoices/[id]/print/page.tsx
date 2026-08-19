@@ -27,6 +27,7 @@ type Invoice = {
   total: string;
   amountPaid: string;
   notes?: string | null;
+  estimateNo?: string | null;
   party: {
     name: string;
     phone?: string | null;
@@ -133,6 +134,12 @@ export default function InvoicePrintPage() {
               <span className="text-gray-500">Date: </span>
               <span className="font-semibold">{formatDate(invoice.invoiceDate)}</span>
             </p>
+            {invoice.estimateNo && (
+              <p>
+                <span className="text-gray-500">Estimate No: </span>
+                <span className="font-semibold">{invoice.estimateNo}</span>
+              </p>
+            )}
             <p>
               <span className="text-gray-500">Status: </span>
               <span

@@ -74,6 +74,7 @@ export default function EditInvoicePage() {
   const [items, setItems] = useState<Item[]>([]);
   const [partyId, setPartyId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [estimateNo, setEstimateNo] = useState("");
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   const [taxInclusive, setTaxInclusive] = useState(false);
@@ -114,6 +115,7 @@ export default function EditInvoicePage() {
         )
       );
       setDueDate(i.dueDate ? i.dueDate.slice(0, 10) : "");
+      setEstimateNo((i as { estimateNo?: string | null }).estimateNo || "");
       setPayAmount(round2(Number(i.total) - Number(i.amountPaid)));
       setLines(
         i.items.length
@@ -189,6 +191,7 @@ export default function EditInvoicePage() {
           discount: Number(discount) || 0,
           dueDate: dueDate || undefined,
           notes: notes || undefined,
+          estimateNo: estimateNo.trim() || undefined,
           attachmentUrl: attachmentUrls[0] || undefined,
           attachmentUrl2: attachmentUrls[1] || undefined,
           attachmentUrl3: attachmentUrls[2] || undefined,
@@ -315,6 +318,19 @@ export default function EditInvoicePage() {
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
+          </div>
+          <div>
+            <label className="label">Estimate No. (optional)</label>
+            <input
+              className="input"
+              placeholder="e.g. EST-104"
+              maxLength={40}
+              value={estimateNo}
+              onChange={(e) => setEstimateNo(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              The quotation/estimate this bill was made from — printed on the invoice.
+            </p>
           </div>
         </div>
 
