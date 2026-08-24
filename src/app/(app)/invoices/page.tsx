@@ -18,6 +18,10 @@ type Invoice = {
   invoiceDate: string;
   party: { id?: string; name: string };
   profit?: number | null;
+  // Value returned against this bill (credit notes). `amountPaid` only counts
+  // money the customer handed over, so returns have to come off separately for
+  // the pending figure to be right.
+  returnedAmount?: number | null;
 };
 
 const DAY = 86400000;
@@ -38,6 +42,9 @@ type CreditNote = {
   reason?: string | null;
   refundMethod?: string | null;
   createdAt: string;
+  // Present when the return was settled as an exchange — undoing it also takes
+  // the replacement goods off the bill and back into stock.
+  exchangeLines?: unknown[] | null;
 };
 // Product catalog entry for the "Add items to bill" picker.
 type CatalogItem = {
@@ -103,7 +110,8 @@ export default function InvoicesPage() {
   const [exch, setExch] = useState(false);
   const [exchLines, setExchLines] = useState<AddLine[]>([]);
   const [exchInclusive, setExchInclusive] = useState(false);
-  const [exchPay, setExchPay] = useState<"PAID" | "PARTIAL" | "UNPAID">("PAID");
+  // How the extra amount is collected — mirrors the API's `exchange.collect`.
+  const [exchPay, setExchPay] = useState<"FULL" | "PARTIAL" | "NONE">("FULL");
   const [exchPayMethod, setExchPayMethod] = useState("CASH");
   const [exchPayAmount, setExchPayAmount] = useState(0);
   const [exchRefund, setExchRefund] = useState<"ADJUST" | "CASH" | "BANK">("ADJUST");
@@ -202,7 +210,12 @@ export default function InvoicesPage() {
     setInvoices(r.invoices);
   }
 
-  const dueOf = (inv: Invoice) => Number(inv.total) - Number(inv.amountPaid);
+  // What the party still owes on a bill: the total, less money actually paid,
+  // less anything returned against it. Returns (and the return half of an
+  // exchange) do not touch amountPaid, so without this a bill the customer has
+  // already squared up would keep showing a pending amount.
+  const dueOf = (inv: Invoice) =>
+    r2(Number(inv.total) - Number(inv.amountPaid) - Number(inv.returnedAmount ?? 0));
   const isOverdue = (inv: Invoice) =>
     inv.type === "SALE" && dueOf(inv) > 0.009 && daysSince(inv.invoiceDate) >= OVERDUE_DAYS;
 
@@ -284,7 +297,7 @@ export default function InvoicesPage() {
     setExch(false);
     setExchLines([emptyAddLine()]);
     setExchInclusive(false);
-    setExchPay("PAID");
+    setExchPay("FULL");
     setExchPayMethod("CASH");
     setExchPayAmount(0);
     setExchRefund("ADJUST");
@@ -323,9 +336,13 @@ export default function InvoicesPage() {
     setSaving(true);
     setError("");
     try {
-      // 1. The return itself. In exchange mode no cash is refunded here — the
-      //    return value nets against the new goods; only the difference moves.
-      await api(`/api/invoices/${returnInv.id}/return`, {
+      // One request, one database transaction: stock back in, the replacement
+      // goods billed and taken out of stock, and the difference collected or
+      // refunded through the cash book. Doing this in separate calls used to
+      // leave the books half-updated whenever one of them failed.
+      const res = await api<{
+        exchange?: { difference: number; collected: number; refunded: number };
+      }>(`/api/invoices/${returnInv.id}/return`, {
         method: "POST",
         body: {
           items,
@@ -333,69 +350,47 @@ export default function InvoicesPage() {
             (exch ? "Exchange" : "") + (reason ? (exch ? ": " : "") + reason : "") ||
             undefined,
           refundMethod: exch || refundMethod === "NONE" ? undefined : refundMethod,
+          exchange: exch
+            ? {
+                taxInclusive: exchInclusive,
+                items: exchValid.map((l) => ({
+                  itemId: l.itemId || undefined,
+                  description: l.description,
+                  quantity: Number(l.quantity),
+                  rate: Number(l.rate),
+                  taxRate: Number(l.taxRate),
+                })),
+                collect: exchPay,
+                collectAmount: exchPay === "PARTIAL" ? r2(exchPayAmount) : undefined,
+                collectMethod: exchPayMethod,
+                refund: exchRefund,
+              }
+            : undefined,
         },
       });
 
       if (exch) {
-        // 2. The replacement goods go onto the same bill (stock out, totals up).
-        await api(`/api/invoices/${returnInv.id}/add-items`, {
-          method: "POST",
-          body: {
-            taxInclusive: exchInclusive,
-            items: exchValid.map((l) => ({
-              itemId: l.itemId || undefined,
-              description: l.description,
-              quantity: Number(l.quantity),
-              rate: Number(l.rate),
-              taxRate: Number(l.taxRate),
-            })),
-          },
-        });
-
-        // 3. Settle the difference.
-        if (exchDiff > 0.009) {
-          const pay =
-            exchPay === "PAID"
-              ? exchDiff
-              : exchPay === "PARTIAL"
-              ? Math.min(r2(exchPayAmount), exchDiff)
-              : 0;
-          if (pay > 0.009) {
-            await api("/api/payments", {
-              method: "POST",
-              body: {
-                invoiceId: returnInv.id,
-                partyId: returnInv.party?.id || undefined,
-                direction: "IN",
-                purpose: "Customer Receipt",
-                amount: r2(pay),
-                method: exchPayMethod,
-                notes: `Exchange difference on ${returnInv.invoiceNumber}`,
-              },
-            });
-          }
-        } else if (exchDiff < -0.009 && exchRefund !== "ADJUST") {
-          await api("/api/payments", {
-            method: "POST",
-            body: {
-              partyId: returnInv.party?.id || undefined,
-              direction: "OUT",
-              purpose: "Customer Refund",
-              amount: r2(-exchDiff),
-              method: exchRefund,
-              notes: `Exchange refund on ${returnInv.invoiceNumber}`,
-            },
-          });
-        }
+        const x = res?.exchange;
+        const diff = x ? x.difference : exchDiff;
         setNotice(
-          exchDiff > 0.009
+          diff > 0.009
             ? `🔄 Exchange recorded on ${returnInv.invoiceNumber} — extra ${formatMoney(
-                exchDiff
-              )} ${exchPay === "UNPAID" ? "left as pending on the bill" : "settled"}.`
-            : exchDiff < -0.009
-            ? `🔄 Exchange recorded on ${returnInv.invoiceNumber} — ${formatMoney(
-                -exchDiff
-              )} ${exchRefund === "ADJUST" ? "adjusted against the bill" : "refunded"}.`
+                diff
+              )}: ${
+                x && x.collected > 0.009
+                  ? `${formatMoney(x.collected)} collected via ${exchPayMethod}`
+                  : "left as pending on the bill"
+              }${
+                x && x.collected > 0.009 && diff - x.collected > 0.009
+                  ? `, ${formatMoney(diff - x.collected)} still pending`
+                  : ""
+              }.`
+            : diff < -0.009
+            ? `🔄 Exchange recorded on ${returnInv.invoiceNumber} — ${formatMoney(-diff)} ${
+                x && x.refunded > 0.009
+                  ? `paid back via ${exchRefund} (cash book updated)`
+                  : "kept as credit on the customer's ledger"
+              }.`
             : `🔄 Even exchange recorded on ${returnInv.invoiceNumber}.`
         );
         setExch(false);
@@ -451,7 +446,6 @@ export default function InvoicesPage() {
     }
   }
 
-  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
   // Overdue: unpaid sale bills past the 10-day mark.
   const overdueList = invoices.filter(isOverdue);
   const overdueTotal = overdueList.reduce((s, i) => s + dueOf(i), 0);
@@ -470,15 +464,14 @@ export default function InvoicesPage() {
   });
   const sum = invoices.reduce(
     (acc, inv) => {
-      const total = Number(inv.total);
-      const paid = Number(inv.amountPaid);
-      acc.total += total;
-      acc.paid += paid;
-      acc.due += Math.max(0, total - paid);
+      acc.total += Number(inv.total);
+      acc.paid += Number(inv.amountPaid);
+      acc.returned += Number(inv.returnedAmount ?? 0);
+      acc.due += Math.max(0, dueOf(inv));
       if (inv.type === "SALE" && inv.profit != null) acc.profit += inv.profit;
       return acc;
     },
-    { total: 0, paid: 0, due: 0, profit: 0 }
+    { total: 0, paid: 0, returned: 0, due: 0, profit: 0 }
   );
 
   return (
@@ -609,7 +602,8 @@ export default function InvoicesPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visible.map((inv) => {
-                const due = round2(Number(inv.total) - Number(inv.amountPaid));
+                const due = dueOf(inv);
+                const returned = Number(inv.returnedAmount ?? 0);
                 const profit = inv.profit;
                 const overdue = isOverdue(inv);
                 const lateDays = daysSince(inv.invoiceDate);
@@ -644,6 +638,14 @@ export default function InvoicesPage() {
                     </td>
                     <td className="table-td text-right">
                       <div className="font-semibold text-slate-900">{formatMoney(inv.total)}</div>
+                      {returned > 0.009 && (
+                        <div
+                          className="text-xs font-semibold text-amber-600"
+                          title="Value returned / exchanged out of this bill"
+                        >
+                          ↩ {formatMoney(returned)} returned
+                        </div>
+                      )}
                       {inv.type === "SALE" && profit != null && (
                         <div
                           className={`text-xs font-semibold ${
@@ -667,7 +669,7 @@ export default function InvoicesPage() {
                         </>
                       ) : due < -0.009 ? (
                         <span className="text-xs font-semibold text-emerald-600">
-                          {formatMoney(Math.abs(due))} advance
+                          {formatMoney(Math.abs(due))} {returned > 0.009 ? "credit" : "advance"}
                         </span>
                       ) : (
                         <span className="text-slate-300">—</span>
@@ -1061,7 +1063,7 @@ export default function InvoicesPage() {
                       <div className="space-y-2">
                         <label className="label">Payment of the extra amount</label>
                         <div className="grid grid-cols-3 gap-2">
-                          {(["PAID", "PARTIAL", "UNPAID"] as const).map((opt) => (
+                          {(["FULL", "PARTIAL", "NONE"] as const).map((opt) => (
                             <button
                               key={opt}
                               type="button"
@@ -1072,7 +1074,7 @@ export default function InvoicesPage() {
                                   : "border-slate-200 bg-white text-slate-600"
                               }`}
                             >
-                              {opt === "PAID"
+                              {opt === "FULL"
                                 ? "Paid now"
                                 : opt === "PARTIAL"
                                 ? "Partially paid"
@@ -1080,7 +1082,7 @@ export default function InvoicesPage() {
                             </button>
                           ))}
                         </div>
-                        {exchPay !== "UNPAID" && (
+                        {exchPay !== "NONE" && (
                           <div className="grid grid-cols-2 gap-2">
                             {exchPay === "PARTIAL" && (
                               <input
@@ -1105,8 +1107,11 @@ export default function InvoicesPage() {
                           </div>
                         )}
                         <p className="text-xs text-gray-400">
-                          Anything not paid now stays as pending on this bill and shows
-                          in the overdue list until collected.
+                          {exchPay === "NONE"
+                            ? "Nothing collected now — the extra stays pending on this bill and shows in the overdue list."
+                            : `Adds to the shop's ${
+                                exchPayMethod === "BANK" ? "bank" : "cash"
+                              } balance in the admin cash book. Anything not paid now stays pending on this bill.`}
                         </p>
                       </div>
                     )}
@@ -1127,6 +1132,20 @@ export default function InvoicesPage() {
                           <option value="CASH">Refund cash from the drawer</option>
                           <option value="BANK">Refund to bank</option>
                         </select>
+                        <p className="mt-1 text-xs text-gray-400">
+                          {exchRefund === "ADJUST"
+                            ? "No money moves — it stays as a credit on the customer's ledger."
+                            : `The shop's ${
+                                exchRefund === "BANK" ? "bank" : "cash"
+                              } balance in the admin cash book drops by ${formatMoney(-exchDiff)}.`}
+                        </p>
+                        {exchRefund !== "ADJUST" && dueOf(returnInv) > 0.009 && (
+                          <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                            ⚠ This bill still has {formatMoney(dueOf(returnInv))} pending —
+                            only pay back money the customer has actually handed over.
+                            Otherwise use <b>Adjust</b> so it comes off what they owe.
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1181,6 +1200,11 @@ export default function InvoicesPage() {
                         <span className="font-semibold text-slate-800">
                           {formatMoney(cn.totalAmount)}
                         </span>
+                        {cn.exchangeLines?.length ? (
+                          <span className="ml-1.5 rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-semibold text-brand">
+                            🔄 exchange
+                          </span>
+                        ) : null}
                         <span className="text-gray-500">
                           {" · "}
                           {formatDate(cn.createdAt)}
@@ -1205,6 +1229,8 @@ export default function InvoicesPage() {
                 <p className="mt-2 text-[11px] text-gray-500">
                   A wrong return is sent to the admin for approval. Once approved it puts the
                   items back as sold, removes the stock it added, and reverses any cash refund.
+                  For an exchange it also takes the replacement goods off the bill, puts their
+                  stock back and undoes the extra amount collected.
                 </p>
               </div>
             )}
@@ -1249,7 +1275,7 @@ export default function InvoicesPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setPayAmount(round2(dueOf(payInv)))}
+                  onClick={() => setPayAmount(dueOf(payInv))}
                   className="mt-1 text-xs font-medium text-brand hover:underline"
                 >
                   Full balance {formatMoney(dueOf(payInv))}
