@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import ItemPicker from "@/components/ItemPicker";
 
 type Invoice = {
   id: string;
@@ -37,6 +38,20 @@ type CreditNote = {
   refundMethod?: string | null;
   createdAt: string;
 };
+// Product catalog entry for the "Add items to bill" picker.
+type CatalogItem = {
+  id: string;
+  name: string;
+  sku?: string | null;
+  barcode?: string | null;
+  unit: string;
+  salePrice: string;
+  purchasePrice: string;
+  taxRate: string;
+  stockQty: string;
+  isService: boolean;
+};
+type AddLine = { itemId: string; description: string; quantity: number; rate: number; taxRate: number };
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -63,6 +78,90 @@ export default function InvoicesPage() {
   const [payAmount, setPayAmount] = useState(0);
   const [payMethod, setPayMethod] = useState("CASH");
   const [paySaving, setPaySaving] = useState(false);
+
+  // "Add items to bill" modal — the customer takes more goods days later and
+  // they go onto the same bill instead of a fresh one.
+  const [addInv, setAddInv] = useState<Invoice | null>(null);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [addLines, setAddLines] = useState<AddLine[]>([]);
+  const [addInclusive, setAddInclusive] = useState(false);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState("");
+
+  const emptyAddLine = (): AddLine => ({
+    itemId: "",
+    description: "",
+    quantity: 1,
+    rate: 0,
+    taxRate: 0,
+  });
+
+  async function openAdd(inv: Invoice) {
+    setAddInv(inv);
+    setAddLines([emptyAddLine()]);
+    setAddInclusive(false);
+    setAddError("");
+    if (catalog.length === 0) {
+      try {
+        const r = await api<{ items: CatalogItem[] }>("/api/items");
+        setCatalog(r.items);
+      } catch {
+        /* picker just stays empty */
+      }
+    }
+  }
+
+  function pickAddItem(index: number, itemId: string) {
+    const it = catalog.find((c) => c.id === itemId);
+    if (!it || !addInv) return;
+    setAddLines((ls) =>
+      ls.map((l, i) =>
+        i === index
+          ? {
+              itemId,
+              description: it.name,
+              quantity: l.quantity || 1,
+              rate: Number(addInv.type === "SALE" ? it.salePrice : it.purchasePrice),
+              taxRate: Number(it.taxRate),
+            }
+          : l
+      )
+    );
+  }
+
+  async function submitAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addInv) return;
+    const valid = addLines.filter((l) => l.description && l.quantity > 0);
+    if (valid.length === 0) {
+      setAddError("Pick at least one product with a quantity.");
+      return;
+    }
+    setAddSaving(true);
+    setAddError("");
+    try {
+      await api(`/api/invoices/${addInv.id}/add-items`, {
+        method: "POST",
+        body: {
+          taxInclusive: addInclusive,
+          items: valid.map((l) => ({
+            itemId: l.itemId || undefined,
+            description: l.description,
+            quantity: Number(l.quantity),
+            rate: Number(l.rate),
+            taxRate: Number(l.taxRate),
+          })),
+        },
+      });
+      setNotice(`✅ Items added to ${addInv.invoiceNumber} — bill total and pending updated.`);
+      setAddInv(null);
+      await load();
+    } catch (err) {
+      setAddError(err instanceof ApiError ? err.message : "Failed to add items");
+    } finally {
+      setAddSaving(false);
+    }
+  }
 
   async function load() {
     const q = type ? `?type=${type}` : "";
@@ -459,6 +558,13 @@ export default function InvoicesPage() {
                       >
                         PDF
                       </Link>
+                      <button
+                        onClick={() => openAdd(inv)}
+                        className="mr-3 text-brand hover:underline"
+                        title="Customer took more items later? Add them to this bill."
+                      >
+                        + Add
+                      </button>
                       <Link
                         href={`/invoices/${inv.id}/edit`}
                         className="mr-3 text-brand hover:underline"
@@ -495,6 +601,152 @@ export default function InvoicesPage() {
           </table>
         </div>
       </div>
+
+      {addInv && (
+        <Modal
+          title={`Add items to ${addInv.invoiceNumber}`}
+          onClose={() => setAddInv(null)}
+        >
+          <form onSubmit={submitAdd} className="space-y-4">
+            <p className="text-sm text-gray-500">
+              {addInv.party?.name} took more goods? Add them here — the bill total,
+              GST, stock, pending amount, profit and all reports update automatically.
+            </p>
+            {addLines.map((l, i) => (
+              <div key={i} className="rounded-xl border border-slate-200 p-3">
+                <div className="mb-2 flex items-start gap-2">
+                  <div className="flex-1">
+                    <ItemPicker
+                      items={catalog.map((it) => ({
+                        id: it.id,
+                        name: it.name,
+                        sku: it.sku,
+                        barcode: it.barcode,
+                        unit: it.unit,
+                        price: Number(addInv.type === "SALE" ? it.salePrice : it.purchasePrice),
+                        stock: it.isService ? null : Number(it.stockQty),
+                      }))}
+                      value={l.itemId}
+                      onSelect={(id) => pickAddItem(i, id)}
+                    />
+                  </div>
+                  {addLines.length > 1 && (
+                    <button
+                      type="button"
+                      className="mt-2 text-red-500 hover:text-red-700"
+                      onClick={() => setAddLines((ls) => ls.filter((_, x) => x !== i))}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="label">Qty</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      className="input"
+                      value={l.quantity}
+                      onChange={(e) =>
+                        setAddLines((ls) =>
+                          ls.map((x, idx) =>
+                            idx === i ? { ...x, quantity: Number(e.target.value) } : x
+                          )
+                        )
+                      }
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Rate</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="input"
+                      value={l.rate}
+                      onChange={(e) =>
+                        setAddLines((ls) =>
+                          ls.map((x, idx) =>
+                            idx === i ? { ...x, rate: Number(e.target.value) } : x
+                          )
+                        )
+                      }
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Tax %</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="input"
+                      value={l.taxRate}
+                      onChange={(e) =>
+                        setAddLines((ls) =>
+                          ls.map((x, idx) =>
+                            idx === i ? { ...x, taxRate: Number(e.target.value) } : x
+                          )
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                className="btn-secondary text-sm"
+                onClick={() => setAddLines((ls) => [...ls, emptyAddLine()])}
+              >
+                + Add another line
+              </button>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={addInclusive}
+                  onChange={(e) => setAddInclusive(e.target.checked)}
+                />
+                Rates include GST
+              </label>
+            </div>
+            {/* Live preview of what this addition does to the bill. */}
+            {(() => {
+              const valid = addLines.filter((l) => l.description && l.quantity > 0);
+              const addTotal = valid.reduce((s, l) => {
+                const net = addInclusive ? l.rate / (1 + l.taxRate / 100) : l.rate;
+                return s + l.quantity * net * (1 + l.taxRate / 100);
+              }, 0);
+              const newTotal = Number(addInv.total) + addTotal;
+              const newDue = newTotal - Number(addInv.amountPaid);
+              return (
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-gray-600">
+                  Adding <b>{formatMoney(addTotal)}</b> (incl GST) → new bill total{" "}
+                  <b>{formatMoney(newTotal)}</b> · pending after this{" "}
+                  <b className={newDue > 0.009 ? "text-rose-600" : "text-emerald-600"}>
+                    {formatMoney(Math.max(0, newDue))}
+                  </b>
+                </div>
+              );
+            })()}
+            {addError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{addError}</div>
+            )}
+            <div className="flex justify-end gap-3">
+              <button type="button" className="btn-secondary" onClick={() => setAddInv(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary" disabled={addSaving}>
+                {addSaving ? "Adding…" : "Add to Bill"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {returnInv && (
         <Modal
