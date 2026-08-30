@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney, formatDate } from "@/lib/format";
+import { formatMoney, formatDate, formatTime } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
@@ -16,6 +16,23 @@ type Expense = {
   date: string;
 };
 type Invoice = { id: string; invoiceNumber: string };
+
+// <input type="datetime-local"> speaks the browser's local wall-clock time and
+// carries no timezone, so convert in both directions explicitly rather than
+// slicing an ISO string (which is UTC and would shift the entry by 5h30m here).
+const toLocalInput = (value: string | Date) => {
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+};
+const fromLocalInput = (value: string) => {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+};
 
 // Sales returns / exchanges are NOT recorded here — they are handled from the
 // bill itself (Invoices → Return), where the returned quantity, the stock, the
@@ -42,10 +59,13 @@ export default function ExpensesPage() {
     note: "",
     invoiceId: "",
     method: "CASH",
+    // When the charge was actually incurred — defaults to now, but a charge
+    // entered late can be back-dated so it lands in the right day's cash book
+    // and the right month's P&L.
+    date: "",
   });
-  // When set, we're editing this charge (id + its original date to preserve).
+  // When set, we're editing this charge.
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingDate, setEditingDate] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -72,9 +92,9 @@ export default function ExpensesPage() {
       note: "",
       invoiceId: "",
       method: "CASH",
+      date: toLocalInput(new Date()),
     });
     setEditingId(null);
-    setEditingDate(null);
     setError("");
     setOpen(true);
   }
@@ -86,9 +106,9 @@ export default function ExpensesPage() {
       note: x.note || "",
       invoiceId: x.invoiceId || "",
       method: x.method || "CASH",
+      date: toLocalInput(x.date),
     });
     setEditingId(x.id);
-    setEditingDate(x.date);
     setError("");
     setOpen(true);
   }
@@ -108,7 +128,8 @@ export default function ExpensesPage() {
           note: form.note || undefined,
           invoiceId: form.invoiceId || undefined,
           method: form.method || undefined,
-          date: editingId ? editingDate ?? undefined : undefined,
+          // Omitted only if the field was cleared — the server then stamps now.
+          date: fromLocalInput(form.date),
         },
       });
       if (editingId) {
@@ -177,7 +198,10 @@ export default function ExpensesPage() {
           <tbody className="divide-y divide-gray-100">
             {expenses.map((x) => (
               <tr key={x.id}>
-                <td className="table-td">{formatDate(x.date)}</td>
+                <td className="table-td">
+                  <div>{formatDate(x.date)}</div>
+                  <div className="text-xs text-gray-400">{formatTime(x.date)}</div>
+                </td>
                 <td className="table-td font-medium">{x.category}</td>
                 <td className="table-td text-gray-500">{invNo(x.invoiceId)}</td>
                 <td className="table-td text-gray-500">{x.method || "—"}</td>
@@ -251,6 +275,30 @@ export default function ExpensesPage() {
                   pending), and the bill&apos;s status updates to Paid/Partial accordingly.
                 </p>
               )}
+            </div>
+
+            <div>
+              <label className="label">Date &amp; time of the charge</label>
+              <div className="flex gap-2">
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn-secondary shrink-0 text-sm"
+                  onClick={() => setForm({ ...form, date: toLocalInput(new Date()) })}
+                >
+                  Now
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-400">
+                Defaults to right now. Change it to record a charge you paid earlier — it then
+                lands on that day in the cash book and in that month&apos;s Profit &amp; Loss.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
