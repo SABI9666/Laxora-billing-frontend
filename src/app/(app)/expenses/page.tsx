@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney, formatDate, formatTime } from "@/lib/format";
+import {
+  formatMoney,
+  formatDate,
+  formatTime,
+  toLocalInput,
+  fromLocalInput,
+} from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
@@ -16,23 +22,6 @@ type Expense = {
   date: string;
 };
 type Invoice = { id: string; invoiceNumber: string };
-
-// <input type="datetime-local"> speaks the browser's local wall-clock time and
-// carries no timezone, so convert in both directions explicitly rather than
-// slicing an ISO string (which is UTC and would shift the entry by 5h30m here).
-const toLocalInput = (value: string | Date) => {
-  const d = typeof value === "string" ? new Date(value) : value;
-  if (isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}`;
-};
-const fromLocalInput = (value: string) => {
-  if (!value) return undefined;
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? undefined : d.toISOString();
-};
 
 // Sales returns / exchanges are NOT recorded here — they are handled from the
 // bill itself (Invoices → Return), where the returned quantity, the stock, the
