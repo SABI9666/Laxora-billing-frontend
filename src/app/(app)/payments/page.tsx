@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney, formatDate } from "@/lib/format";
+import {
+  formatMoney,
+  formatDate,
+  formatTime,
+  toLocalInput,
+  fromLocalInput,
+} from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
@@ -52,6 +58,10 @@ const empty = {
   split: false,
   cashAmount: 0,
   bankAmount: 0,
+  // When the money actually moved. Defaults to now (set in openNew), but a
+  // voucher entered late can be back-dated so it lands on the right day in the
+  // cash book and the right month in the reports.
+  paymentDate: "",
 };
 
 export default function PaymentsPage() {
@@ -96,7 +106,11 @@ export default function PaymentsPage() {
 
   function openNew(dir: "IN" | "OUT") {
     setDirection(dir);
-    setForm({ ...empty, purpose: dir === "IN" ? "Customer Receipt" : "Supplier Payment" });
+    setForm({
+      ...empty,
+      purpose: dir === "IN" ? "Customer Receipt" : "Supplier Payment",
+      paymentDate: toLocalInput(new Date()),
+    });
     setError("");
     setOpen(true);
   }
@@ -122,6 +136,8 @@ export default function PaymentsPage() {
       direction,
       purpose: form.purpose || undefined,
       notes: form.notes || undefined,
+      // Omitted only if the field was cleared — the server then stamps now.
+      paymentDate: fromLocalInput(form.paymentDate),
     };
     if (splitOn) {
       const cash = Number(form.cashAmount) || 0;
@@ -243,7 +259,10 @@ export default function PaymentsPage() {
                 const transfer = isTransferVoucher(p);
                 return (
                   <tr key={p.id}>
-                    <td className="table-td">{formatDate(p.paymentDate)}</td>
+                    <td className="table-td">
+                      <div>{formatDate(p.paymentDate)}</div>
+                      <div className="text-xs text-gray-400">{formatTime(p.paymentDate)}</div>
+                    </td>
                     <td className="table-td">
                       <span
                         className={`rounded px-2 py-0.5 text-xs font-medium ${
@@ -470,6 +489,30 @@ export default function PaymentsPage() {
                 )}
               </div>
             )}
+            <div>
+              <label className="label">Date &amp; time of this voucher</label>
+              <div className="flex gap-2">
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={form.paymentDate}
+                  onChange={(e) => setForm({ ...form, paymentDate: e.target.value })}
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn-secondary shrink-0 text-sm"
+                  onClick={() => setForm({ ...form, paymentDate: toLocalInput(new Date()) })}
+                >
+                  Now
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-400">
+                Defaults to right now. Change it for money that moved earlier — the cash book,
+                the bill&apos;s pending amount and the reports all follow this date.
+              </p>
+            </div>
+
             <div>
               <label className="label">Note (optional)</label>
               <input

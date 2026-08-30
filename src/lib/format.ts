@@ -41,3 +41,29 @@ export function formatTime(value: string | Date): string {
     hour12: true,
   });
 }
+
+// ---------------------------------------------------------------------------
+// <input type="datetime-local"> helpers.
+//
+// The input speaks the browser's local wall-clock time and carries no
+// timezone, so convert in both directions explicitly. Slicing an ISO string
+// instead would read it as UTC and shift every entry by 5h30m in India.
+// ---------------------------------------------------------------------------
+
+// Date -> "YYYY-MM-DDTHH:mm" for the input's value.
+export function toLocalInput(value: string | Date): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+// The input's value -> an ISO string for the API. Blank/invalid gives
+// undefined, which lets the server stamp the current time itself.
+export function fromLocalInput(value: string): string | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
