@@ -47,6 +47,7 @@ type Invoice = {
   discount: string;
   total: string;
   amountPaid: string;
+  taxInclusive?: boolean;
   notes?: string | null;
   attachmentUrl?: string | null;
   attachmentUrl2?: string | null;
@@ -117,15 +118,24 @@ export default function EditInvoicePage() {
       setDueDate(i.dueDate ? i.dueDate.slice(0, 10) : "");
       setEstimateNo((i as { estimateNo?: string | null }).estimateNo || "");
       setPayAmount(round2(Number(i.total) - Number(i.amountPaid)));
+      // Reopen the bill in the mode it was entered in. Rates are stored
+      // ex-GST, so for an "including GST" bill the tax is added back to show
+      // the same figures the biller originally typed.
+      const inclusive = !!i.taxInclusive;
+      setTaxInclusive(inclusive);
       setLines(
         i.items.length
-          ? i.items.map((l) => ({
-              itemId: l.itemId || "",
-              description: l.description,
-              quantity: Number(l.quantity),
-              rate: Number(l.rate),
-              taxRate: Number(l.taxRate),
-            }))
+          ? i.items.map((l) => {
+              const taxRate = Number(l.taxRate);
+              const netRate = Number(l.rate);
+              return {
+                itemId: l.itemId || "",
+                description: l.description,
+                quantity: Number(l.quantity),
+                rate: inclusive ? round2(netRate * (1 + taxRate / 100)) : netRate,
+                taxRate,
+              };
+            })
           : [{ ...blankLine }]
       );
     });
