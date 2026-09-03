@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
+import LedgerItems, { type LedgerItem } from "@/components/LedgerItems";
 
 type Row = {
   id: string;
@@ -32,6 +33,8 @@ type Ledger = {
     ref: string;
     // Detail under the line, e.g. a charge's note and how it was settled.
     note?: string;
+    // Goods behind the figure: bill lines, items added, returned or exchanged.
+    items?: LedgerItem[];
     debit: number;
     credit: number;
     balance: number;
@@ -43,9 +46,13 @@ export default function LedgersPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [ledger, setLedger] = useState<Ledger | null>(null);
   const [search, setSearch] = useState("");
+  // Which party's ledger is loading / failed, so a click never goes silent.
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     setLedger(null);
+    setError(null);
     const type = tab === "customers" ? "CUSTOMER" : "SUPPLIER";
     const r = await api<{ parties: Row[] }>(`/api/parties/summary?type=${type}`);
     setRows(r.parties);
@@ -56,7 +63,16 @@ export default function LedgersPage() {
   }, [tab]);
 
   async function openLedger(id: string) {
-    setLedger(await api<Ledger>(`/api/parties/${id}/ledger`));
+    setLoadingId(id);
+    setError(null);
+    try {
+      setLedger(await api<Ledger>(`/api/parties/${id}/ledger`));
+    } catch (e) {
+      setLedger(null);
+      setError(e instanceof Error ? e.message : "Could not load the ledger");
+    } finally {
+      setLoadingId(null);
+    }
   }
 
   const term = search.trim().toLowerCase();
@@ -107,10 +123,17 @@ export default function LedgersPage() {
                 {visible.map((r) => (
                   <tr
                     key={r.id}
-                    className="cursor-pointer hover:bg-gray-50"
+                    className={`cursor-pointer hover:bg-gray-50 ${
+                      ledger?.party.id === r.id ? "bg-indigo-50" : ""
+                    }`}
                     onClick={() => openLedger(r.id)}
                   >
-                    <td className="table-td font-medium text-brand">{r.name}</td>
+                    <td className="table-td font-medium text-brand">
+                      {r.name}
+                      {loadingId === r.id && (
+                        <span className="ml-2 text-xs font-normal text-gray-400">loading…</span>
+                      )}
+                    </td>
                     <td className="table-td text-right">{formatMoney(r.billed)}</td>
                     <td className="table-td text-right">{formatMoney(r.paid)}</td>
                     <td
@@ -152,6 +175,21 @@ export default function LedgersPage() {
               </Link>
             )}
           </div>
+          {!ledger && (
+            <div className="px-5 py-6 text-sm text-gray-400">
+              {loadingId
+                ? "Loading ledger…"
+                : error
+                ? (
+                    <span className="text-red-600">
+                      Could not open the ledger: {error}
+                      {error.toLowerCase().includes("createdat") &&
+                        " — run prisma/invoice-item-created-at.sql on the database and redeploy the backend."}
+                    </span>
+                  )
+                : "Click a name on the left to see every bill, item added, return, refund and payment."}
+            </div>
+          )}
           {ledger && (
             <>
               <div className="max-h-[28rem] overflow-y-auto">
@@ -177,20 +215,21 @@ export default function LedgersPage() {
                     {ledger.ledger.map((e, i) => (
                       <tr key={i}>
                         <td className="table-td">{formatDate(e.date)}</td>
-                        <td className="table-td">
-                          {e.kind}
-                          {e.ref ? ` · ${e.ref}` : ""}
+                        <td className="table-td align-top">
+                          <span className="font-medium text-slate-800">{e.kind}</span>
+                          {e.ref ? <span className="text-slate-500"> · {e.ref}</span> : ""}
                           {e.note && (
                             <div className="text-xs text-slate-400">{e.note}</div>
                           )}
+                          <LedgerItems items={e.items} />
                         </td>
-                        <td className="table-td text-right">
+                        <td className="table-td text-right align-top">
                           {e.debit ? formatMoney(e.debit) : "—"}
                         </td>
-                        <td className="table-td text-right text-green-700">
+                        <td className="table-td text-right align-top text-green-700">
                           {e.credit ? formatMoney(e.credit) : "—"}
                         </td>
-                        <td className="table-td text-right font-medium">
+                        <td className="table-td text-right align-top font-medium">
                           {formatMoney(e.balance)}
                         </td>
                       </tr>
