@@ -17,6 +17,7 @@ type Invoice = {
   amountPaid: string;
   invoiceDate: string;
   party: { id?: string; name: string };
+  taxInclusive?: boolean;
   profit?: number | null;
   // Value returned against this bill (credit notes). `amountPaid` only counts
   // money the customer handed over, so returns have to come off separately for
@@ -147,7 +148,8 @@ export default function InvoicesPage() {
   async function openAdd(inv: Invoice) {
     setAddInv(inv);
     setAddLines([emptyAddLine()]);
-    setAddInclusive(false);
+    // New products default to the mode the bill was entered in.
+    setAddInclusive(!!inv.taxInclusive);
     setAddError("");
     await loadCatalog();
   }
