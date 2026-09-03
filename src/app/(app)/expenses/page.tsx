@@ -19,9 +19,40 @@ type Expense = {
   note?: string | null;
   invoiceId?: string | null;
   method?: string | null;
+  // For a bill-linked charge: ADJUST | PAID_TO_PARTY | PAID_TO_OTHER (null on
+  // older rows and on charges with no bill).
+  settlement?: string | null;
   date: string;
 };
 type Invoice = { id: string; invoiceNumber: string };
+
+// What happened to the money on a bill-linked charge.
+type Settlement = "ADJUST" | "PAID_TO_PARTY" | "PAID_TO_OTHER";
+const SETTLEMENTS: { value: Settlement; label: string; hint: string }[] = [
+  {
+    value: "ADJUST",
+    label: "Adjusted against the bill",
+    hint: "Deducted from what they owe on this bill. No cash moves. The bill goes Paid / Partial accordingly.",
+  },
+  {
+    value: "PAID_TO_PARTY",
+    label: "Paid to this customer / supplier",
+    hint: "Cash or bank handed to them — e.g. commission given to the electrician after they paid the bill in full. The bill is not reduced; their ledger shows the amount earned and the amount paid.",
+  },
+  {
+    value: "PAID_TO_OTHER",
+    label: "Paid to someone else",
+    hint: "Cash or bank paid to a third party — e.g. a transporter. The bill is not reduced; it is the shop's cost only.",
+  },
+];
+const settlementLabel = (x: Expense) =>
+  x.settlement === "ADJUST"
+    ? "Adjusted"
+    : x.settlement === "PAID_TO_PARTY"
+    ? `${x.method ?? "CASH"} → party`
+    : x.settlement === "PAID_TO_OTHER"
+    ? `${x.method ?? "CASH"} → other`
+    : x.method || (x.invoiceId ? "Adjusted" : "—");
 
 // Sales returns / exchanges are NOT recorded here — they are handled from the
 // bill itself (Invoices → Return), where the returned quantity, the stock, the
@@ -48,6 +79,7 @@ export default function ExpensesPage() {
     note: "",
     invoiceId: "",
     method: "CASH",
+    settlement: "ADJUST" as Settlement,
     // When the charge was actually incurred — defaults to now, but a charge
     // entered late can be back-dated so it lands in the right day's cash book
     // and the right month's P&L.
@@ -81,6 +113,7 @@ export default function ExpensesPage() {
       note: "",
       invoiceId: "",
       method: "CASH",
+      settlement: "ADJUST",
       date: toLocalInput(new Date()),
     });
     setEditingId(null);
@@ -94,7 +127,10 @@ export default function ExpensesPage() {
       amount: Number(x.amount),
       note: x.note || "",
       invoiceId: x.invoiceId || "",
-      method: x.method || "CASH",
+      method: x.method ?? "CASH",
+      // Older rows have no settlement: they behaved as a deduction, so open
+      // them as one; the user can change it and re-save.
+      settlement: ((x.settlement as Settlement) ?? "ADJUST") as Settlement,
       date: toLocalInput(x.date),
     });
     setEditingId(x.id);
@@ -116,7 +152,10 @@ export default function ExpensesPage() {
           amount: Number(form.amount),
           note: form.note || undefined,
           invoiceId: form.invoiceId || undefined,
-          method: form.method || undefined,
+          // A deduction moves no cash, so no method goes with it.
+          method:
+            form.invoiceId && form.settlement === "ADJUST" ? undefined : form.method || undefined,
+          settlement: form.invoiceId ? form.settlement : undefined,
           // Omitted only if the field was cleared — the server then stamps now.
           date: fromLocalInput(form.date),
         },
@@ -193,7 +232,7 @@ export default function ExpensesPage() {
                 </td>
                 <td className="table-td font-medium">{x.category}</td>
                 <td className="table-td text-gray-500">{invNo(x.invoiceId)}</td>
-                <td className="table-td text-gray-500">{x.method || "—"}</td>
+                <td className="table-td text-gray-500">{settlementLabel(x)}</td>
                 <td className="table-td text-gray-500">{x.note || "—"}</td>
                 <td className="table-td text-right font-semibold text-red-600">
                   {formatMoney(x.amount)}
@@ -249,7 +288,14 @@ export default function ExpensesPage() {
               <select
                 className="input"
                 value={form.invoiceId}
-                onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    invoiceId: e.target.value,
+                    method: form.method || "CASH",
+                    settlement: "ADJUST",
+                  })
+                }
               >
                 <option value="">— Not linked to a bill —</option>
                 {invoices.map((i) => (
@@ -258,13 +304,37 @@ export default function ExpensesPage() {
                   </option>
                 ))}
               </select>
-              {form.invoiceId && (
-                <p className="mt-1 text-xs text-gray-400">
-                  This charge settles the bill&apos;s outstanding due (up to whatever is still
-                  pending), and the bill&apos;s status updates to Paid/Partial accordingly.
-                </p>
-              )}
             </div>
+
+            {form.invoiceId && (
+              <div>
+                <label className="label">What happened to the money?</label>
+                <div className="space-y-1.5">
+                  {SETTLEMENTS.map((o) => (
+                    <label
+                      key={o.value}
+                      className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+                        form.settlement === o.value
+                          ? "border-brand bg-brand-light/30"
+                          : "border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="settlement"
+                        className="mt-0.5"
+                        checked={form.settlement === o.value}
+                        onChange={() => setForm({ ...form, settlement: o.value })}
+                      />
+                      <span>
+                        <span className="font-medium text-slate-800">{o.label}</span>
+                        <span className="block text-xs text-gray-500">{o.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="label">Date &amp; time of the charge</label>
@@ -305,21 +375,33 @@ export default function ExpensesPage() {
               </div>
               <div>
                 <label className="label">Paid via</label>
-                <select
-                  className="input"
-                  value={form.method}
-                  onChange={(e) => setForm({ ...form, method: e.target.value })}
-                >
-                  {["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"].map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-400">
-                  Reduces this shop&apos;s {form.method === "CASH" ? "cash" : "bank"} balance in
-                  the cash book.
-                </p>
+                {form.invoiceId && form.settlement === "ADJUST" ? (
+                  <>
+                    <div className="input bg-slate-50 text-gray-500">No cash moves</div>
+                    <p className="mt-1 text-xs text-gray-400">
+                      A deduction from the bill — nothing leaves the cash book. It still counts
+                      as a cost in Profit &amp; Loss.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <select
+                      className="input"
+                      value={form.method || "CASH"}
+                      onChange={(e) => setForm({ ...form, method: e.target.value })}
+                    >
+                      {["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"].map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-400">
+                      Reduces this shop&apos;s {form.method === "CASH" ? "cash" : "bank"} balance
+                      in the cash book.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
