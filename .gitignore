@@ -8,3 +8,6 @@ build/
 .DS_Store
 next-env.d.ts
 .vercel
+
+# TypeScript incremental-build cache — regenerated on every build, never source.
+*.tsbuildinfo

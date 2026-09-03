@@ -13,7 +13,19 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
 type Party = { id: string; name: string; type: string };
-type Invoice = { id: string; invoiceNumber: string; total: string; amountPaid: string };
+type Invoice = {
+  id: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  total: string;
+  amountPaid: string;
+  returnedAmount?: number | null;
+};
+// What is still owed on a bill: total less paid less anything returned.
+const dueOf = (i: Invoice) =>
+  Math.round(
+    (Number(i.total) - Number(i.amountPaid) - Number(i.returnedAmount ?? 0)) * 100
+  ) / 100;
 type Payment = {
   id: string;
   direction?: "IN" | "OUT";
@@ -49,7 +61,8 @@ const IN_PURPOSES = ["Customer Receipt", "Service Income", "Other Income"];
 const IN_INCOME_PURPOSES = ["Service Income", "Other Income"];
 const empty = {
   partyId: "",
-  invoiceId: "",
+  // Bills the accountant ticked. Empty = auto-adjust, oldest pending first.
+  invoiceIds: [] as string[],
   amount: 0,
   method: "CASH",
   notes: "",
@@ -100,7 +113,12 @@ export default function PaymentsPage() {
     api<{ invoices: Invoice[] }>(
       `/api/invoices?type=${invType}&partyId=${form.partyId}`
     ).then((r) =>
-      setInvoices(r.invoices.filter((i) => Number(i.total) > Number(i.amountPaid)))
+      setInvoices(
+        r.invoices
+          .filter((i) => dueOf(i) > 0.009)
+          // Oldest first — the order the money is applied in.
+          .sort((a, b) => new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime())
+      )
     );
   }, [form.partyId, isCredit]);
 
@@ -132,7 +150,7 @@ export default function PaymentsPage() {
     setError("");
     const base = {
       partyId: needsParty ? form.partyId : undefined,
-      invoiceId: needsParty ? form.invoiceId || undefined : undefined,
+      invoiceIds: needsParty && form.invoiceIds.length ? form.invoiceIds : undefined,
       direction,
       purpose: form.purpose || undefined,
       notes: form.notes || undefined,
@@ -373,7 +391,7 @@ export default function PaymentsPage() {
                 <select
                   className="input"
                   value={form.partyId}
-                  onChange={(e) => setForm({ ...form, partyId: e.target.value, invoiceId: "" })}
+                  onChange={(e) => setForm({ ...form, partyId: e.target.value, invoiceIds: [] })}
                   required
                 >
                   <option value="">Select {isCredit ? "customer" : "supplier"}…</option>
@@ -386,29 +404,118 @@ export default function PaymentsPage() {
               </div>
             )}
 
-            {needsParty && (
+            {needsParty && form.partyId && (
               <div>
-                <label className="label">
-                  Against bill (optional — their unpaid {isCredit ? "sales" : "purchase"} bills)
-                </label>
-                <select
-                  className="input"
-                  value={form.invoiceId}
-                  onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
-                >
-                  <option value="">— Auto-adjust against oldest pending bills —</option>
-                  {invoices.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.invoiceNumber} (due {formatMoney(Number(i.total) - Number(i.amountPaid))})
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-400">
-                  Leave on auto-adjust and the amount clears this{" "}
-                  {isCredit ? "customer" : "supplier"}&apos;s pending bills oldest first —
-                  part payments reduce the due, full payments remove the bill from
-                  pending automatically.
-                </p>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="label mb-0">
+                    Against bills (optional — their pending {isCredit ? "sales" : "purchase"} bills)
+                  </label>
+                  {invoices.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-brand hover:underline"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          invoiceIds:
+                            form.invoiceIds.length === invoices.length
+                              ? []
+                              : invoices.map((i) => i.id),
+                        })
+                      }
+                    >
+                      {form.invoiceIds.length === invoices.length ? "Clear all" : "Select all"}
+                    </button>
+                  )}
+                </div>
+                {invoices.length === 0 ? (
+                  <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    ✓ No pending bills — this will be kept as an advance on their ledger and
+                    applied to their next bill automatically.
+                  </p>
+                ) : (
+                  <div className="max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+                    {invoices.map((i) => {
+                      const on = form.invoiceIds.includes(i.id);
+                      return (
+                        <label
+                          key={i.id}
+                          className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm ${
+                            on ? "bg-brand-light/30" : "hover:bg-slate-50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                invoiceIds: e.target.checked
+                                  ? [...form.invoiceIds, i.id]
+                                  : form.invoiceIds.filter((x: string) => x !== i.id),
+                              })
+                            }
+                          />
+                          <span className="flex-1">
+                            <span className="font-semibold text-slate-800">{i.invoiceNumber}</span>
+                            <span className="ml-2 text-xs text-slate-400">
+                              {formatDate(i.invoiceDate)}
+                            </span>
+                          </span>
+                          <span className="font-semibold text-rose-600">
+                            {formatMoney(dueOf(i))}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {form.invoiceIds.length > 0 ? (
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-gray-500">
+                    <span>
+                      {form.invoiceIds.length} bill{form.invoiceIds.length > 1 ? "s" : ""} ·
+                      due together{" "}
+                      <b>
+                        {formatMoney(
+                          invoices
+                            .filter((i) => form.invoiceIds.includes(i.id))
+                            .reduce((s, i) => s + dueOf(i), 0)
+                        )}
+                      </b>
+                    </span>
+                    {!splitOn && (
+                      <button
+                        type="button"
+                        className="font-medium text-brand hover:underline"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            amount:
+                              Math.round(
+                                invoices
+                                  .filter((i) => form.invoiceIds.includes(i.id))
+                                  .reduce((s, i) => s + dueOf(i), 0) * 100
+                              ) / 100,
+                          })
+                        }
+                      >
+                        Use this amount
+                      </button>
+                    )}
+                    <span className="text-gray-400">
+                      — cleared oldest first; anything extra goes to their other pending bills,
+                      then stays as advance.
+                    </span>
+                  </p>
+                ) : (
+                  invoices.length > 0 && (
+                    <p className="mt-1 text-xs text-gray-400">
+                      Nothing ticked = auto-adjust: the amount clears their pending bills oldest
+                      first. Part payments reduce the due; full payments close the bill and
+                      remove it from pending.
+                    </p>
+                  )
+                )}
               </div>
             )}
 
