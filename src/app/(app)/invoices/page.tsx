@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
+import ShareMenu from "@/components/ShareMenu";
 import Modal from "@/components/Modal";
 import ItemPicker from "@/components/ItemPicker";
 
@@ -16,7 +17,7 @@ type Invoice = {
   total: string;
   amountPaid: string;
   invoiceDate: string;
-  party: { id?: string; name: string };
+  party: { id?: string; name: string; phone?: string | null };
   taxInclusive?: boolean;
   profit?: number | null;
   // Value returned against this bill (credit notes). `amountPaid` only counts
@@ -708,6 +709,18 @@ export default function InvoicesPage() {
                       >
                         PDF
                       </Link>
+                      <ShareMenu
+                        kind="invoice"
+                        id={inv.id}
+                        phone={inv.party?.phone}
+                        title={`Bill ${inv.invoiceNumber}`}
+                        compact
+                        message={[
+                          `Bill ${inv.invoiceNumber} · ${formatDate(inv.invoiceDate)}`,
+                          `Amount: ${formatMoney(Math.round(Number(inv.total)) - returned)}`,
+                          due > 0.009 ? `Balance due: ${formatMoney(due)}` : "Fully paid — thank you!",
+                        ].join("\n")}
+                      />
                       <button
                         onClick={() => openAdd(inv)}
                         className="mr-3 text-brand hover:underline"

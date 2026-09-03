@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
+import ShareMenu from "@/components/ShareMenu";
 import LedgerItems, {
   LedgerBills,
   LedgerKind,
@@ -21,7 +22,7 @@ type Row = {
   balance: number;
 };
 type Ledger = {
-  party: { id: string; name: string; type: string; openingBalance: number };
+  party: { id: string; name: string; type: string; phone?: string | null; openingBalance: number };
   closingBalance: number;
   // Where each bill stands after additions, returns, refunds and receipts.
   bills?: LedgerBill[];
@@ -173,13 +174,30 @@ export default function LedgersPage() {
           <div className="flex items-center justify-between border-b px-5 py-3 font-semibold">
             <span>{ledger ? `${ledger.party.name} — Ledger` : "Select a name to view ledger"}</span>
             {ledger && (
-              <Link
-                href={`/parties/${ledger.party.id}/ledger`}
-                target="_blank"
-                className="text-sm font-medium text-brand hover:underline"
-              >
-                🖨️ Print / PDF
-              </Link>
+              <span className="flex items-center gap-3">
+                <ShareMenu
+                  kind="ledger"
+                  id={ledger.party.id}
+                  phone={ledger.party.phone}
+                  title={`Statement — ${ledger.party.name}`}
+                  compact
+                  message={[
+                    `Statement of account for ${ledger.party.name}`,
+                    ledger.closingBalance > 0.009
+                      ? `${isCustomer ? "Balance due" : "Balance payable"}: ${formatMoney(ledger.closingBalance)}`
+                      : ledger.closingBalance < -0.009
+                      ? `Advance: ${formatMoney(Math.abs(ledger.closingBalance))}`
+                      : "Account settled — thank you!",
+                  ].join("\n")}
+                />
+                <Link
+                  href={`/parties/${ledger.party.id}/ledger`}
+                  target="_blank"
+                  className="text-sm font-medium text-brand hover:underline"
+                >
+                  🖨️ Print / PDF
+                </Link>
+              </span>
             )}
           </div>
           {!ledger && (
