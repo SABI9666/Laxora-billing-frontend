@@ -21,6 +21,8 @@ type Ledger = {
     date: string;
     kind: string;
     ref: string;
+    // Detail under the line, e.g. a charge's note and how it was settled.
+    note?: string;
     debit: number;
     credit: number;
     balance: number;
@@ -169,6 +171,9 @@ export default function LedgersPage() {
                         <td className="table-td">
                           {e.kind}
                           {e.ref ? ` · ${e.ref}` : ""}
+                          {e.note && (
+                            <div className="text-xs text-slate-400">{e.note}</div>
+                          )}
                         </td>
                         <td className="table-td text-right">
                           {e.debit ? formatMoney(e.debit) : "—"}

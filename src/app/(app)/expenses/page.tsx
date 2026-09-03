@@ -94,7 +94,7 @@ export default function ExpensesPage() {
       amount: Number(x.amount),
       note: x.note || "",
       invoiceId: x.invoiceId || "",
-      method: x.method || "CASH",
+      method: x.method ?? (x.invoiceId ? "" : "CASH"),
       date: toLocalInput(x.date),
     });
     setEditingId(x.id);
@@ -193,7 +193,9 @@ export default function ExpensesPage() {
                 </td>
                 <td className="table-td font-medium">{x.category}</td>
                 <td className="table-td text-gray-500">{invNo(x.invoiceId)}</td>
-                <td className="table-td text-gray-500">{x.method || "—"}</td>
+                <td className="table-td text-gray-500">
+                  {x.method || (x.invoiceId ? "Adjusted" : "—")}
+                </td>
                 <td className="table-td text-gray-500">{x.note || "—"}</td>
                 <td className="table-td text-right font-semibold text-red-600">
                   {formatMoney(x.amount)}
@@ -249,7 +251,18 @@ export default function ExpensesPage() {
               <select
                 className="input"
                 value={form.invoiceId}
-                onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+                onChange={(e) => {
+                  const invoiceId = e.target.value;
+                  setForm({
+                    ...form,
+                    invoiceId,
+                    // A charge against a bill is usually deducted from what the
+                    // customer owes (no cash moves), so that becomes the default
+                    // when a bill is picked; without a bill, cash is the only
+                    // sensible meaning.
+                    method: invoiceId ? "" : form.method || "CASH",
+                  });
+                }}
               >
                 <option value="">— Not linked to a bill —</option>
                 {invoices.map((i) => (
@@ -260,8 +273,9 @@ export default function ExpensesPage() {
               </select>
               {form.invoiceId && (
                 <p className="mt-1 text-xs text-gray-400">
-                  This charge settles the bill&apos;s outstanding due (up to whatever is still
-                  pending), and the bill&apos;s status updates to Paid/Partial accordingly.
+                  Deducted from what the customer still owes on this bill (up to the pending
+                  amount) — the bill goes Paid/Partial accordingly, and the charge shows on
+                  their ledger under its own name with your note.
                 </p>
               )}
             </div>
@@ -310,6 +324,9 @@ export default function ExpensesPage() {
                   value={form.method}
                   onChange={(e) => setForm({ ...form, method: e.target.value })}
                 >
+                  {form.invoiceId && (
+                    <option value="">Adjusted against the bill — no cash paid</option>
+                  )}
                   {["CASH", "BANK", "UPI", "CARD", "CHEQUE", "OTHER"].map((m) => (
                     <option key={m} value={m}>
                       {m}
@@ -317,8 +334,15 @@ export default function ExpensesPage() {
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-gray-400">
-                  Reduces this shop&apos;s {form.method === "CASH" ? "cash" : "bank"} balance in
-                  the cash book.
+                  {form.method === ""
+                    ? "No money moves. The amount comes off what the customer owes on the bill and counts as a cost in Profit & Loss."
+                    : form.invoiceId
+                    ? `Money leaves the shop — the ${
+                        form.method === "CASH" ? "cash" : "bank"
+                      } balance drops — and the amount also comes off what the customer still owes on the bill. If they are paying the bill in full, pick this only for a real cash payout: it then shows on their ledger as the shop's cost without reducing an already-paid bill.`
+                    : `Reduces this shop's ${
+                        form.method === "CASH" ? "cash" : "bank"
+                      } balance in the cash book.`}
                 </p>
               </div>
             </div>
