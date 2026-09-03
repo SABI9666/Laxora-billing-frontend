@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
-import LedgerItems, { type LedgerItem } from "@/components/LedgerItems";
+import LedgerItems, {
+  LedgerBills,
+  LedgerKind,
+  type LedgerBill,
+  type LedgerItem,
+} from "@/components/LedgerItems";
 
 type Entry = {
   date: string;
@@ -26,6 +31,7 @@ type Ledger = {
     openingBalance: number;
   };
   closingBalance: number;
+  bills?: LedgerBill[];
   // Reconciliation footer — the same figures the party list is built from.
   totals?: {
     billed: number;
@@ -110,8 +116,8 @@ export default function PartyLedgerPage() {
             <tr className="border-b-2 border-gray-800 text-left text-xs uppercase">
               <th className="py-2 pr-2">Date</th>
               <th className="py-2 pr-2">Particulars</th>
-              <th className="py-2 pr-2 text-right">Billed</th>
-              <th className="py-2 pr-2 text-right">Paid/Return</th>
+              <th className="py-2 pr-2 text-right">Owed (+)</th>
+              <th className="py-2 pr-2 text-right">Paid / Returned (−)</th>
               <th className="py-2 text-right">Balance</th>
             </tr>
           </thead>
@@ -124,20 +130,21 @@ export default function PartyLedgerPage() {
             </tr>
             {data.ledger.map((e, i) => (
               <tr key={i} className="border-b border-gray-200">
-                <td className="py-1.5 pr-2">{formatDate(e.date)}</td>
-                <td className="py-1.5 pr-2">
-                  {e.kind}
-                  {e.ref ? ` · ${e.ref}` : ""}
+                <td className="whitespace-nowrap py-1.5 pr-2 align-top">{formatDate(e.date)}</td>
+                <td className="w-full max-w-0 py-1.5 pr-2">
+                  <LedgerKind kind={e.kind} refNo={e.ref} />
                   {e.note && <div className="text-xs text-gray-500">{e.note}</div>}
                   <LedgerItems items={e.items} />
                 </td>
-                <td className="py-1.5 pr-2 text-right">{e.debit ? formatMoney(e.debit) : "—"}</td>
-                <td className="py-1.5 pr-2 text-right">{e.credit ? formatMoney(e.credit) : "—"}</td>
-                <td className="py-1.5 text-right font-medium">{formatMoney(e.balance)}</td>
+                <td className="whitespace-nowrap py-1.5 pr-2 text-right align-top">{e.debit ? formatMoney(e.debit) : "—"}</td>
+                <td className="whitespace-nowrap py-1.5 pr-2 text-right align-top">{e.credit ? formatMoney(e.credit) : "—"}</td>
+                <td className="whitespace-nowrap py-1.5 text-right align-top font-medium">{formatMoney(e.balance)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+
+        <LedgerBills bills={data.bills} isCustomer={isCustomer} />
 
         {data.totals && (
           <div className="mt-2 flex flex-wrap justify-end gap-x-5 gap-y-1 text-xs text-gray-600">
