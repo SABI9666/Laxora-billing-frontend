@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, toLocalInput, fromLocalInput } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { productMatchRank, searchProducts } from "@/lib/productCode";
@@ -34,6 +34,8 @@ export default function PosPage() {
   const [discount, setDiscount] = useState(0);
   const [method, setMethod] = useState<(typeof METHODS)[number]>("CASH");
   const [paid, setPaid] = useState(true);
+  // Bill time: now by default; set the real time when entering from the book.
+  const [billAt, setBillAt] = useState(() => toLocalInput(new Date()));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -181,6 +183,7 @@ export default function PosPage() {
             partyId,
             type: "SALE",
             discount,
+            invoiceDate: fromLocalInput(billAt),
             items: lines.map((l) => ({
               itemId: l.itemId,
               description: l.name,
@@ -200,6 +203,7 @@ export default function PosPage() {
             invoiceId: invoice.id,
             amount: Number(invoice.total),
             method,
+            paymentDate: fromLocalInput(billAt),
           },
         });
       }
@@ -332,6 +336,17 @@ export default function PosPage() {
               <span>Total</span>
               <span>{formatMoney(total)}</span>
             </div>
+          </div>
+
+          <div className="mt-3">
+            <label className="label">Bill date &amp; time</label>
+            <input
+              type="datetime-local"
+              className="input"
+              value={billAt}
+              onChange={(e) => setBillAt(e.target.value)}
+              title="Change only when entering a bill from the book later"
+            />
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2">

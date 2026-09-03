@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, toLocalInput, fromLocalInput } from "@/lib/format";
 import { makeProductCode } from "@/lib/productCode";
 import BillAttachments from "@/components/BillAttachments";
 import PageHeader from "@/components/PageHeader";
@@ -51,6 +51,10 @@ export default function NewInvoicePage() {
   const [type, setType] = useState<"SALE" | "PURCHASE">("SALE");
   const [partyId, setPartyId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  // When the bill was actually made. Defaults to now; an accountant entering
+  // a bill from the book later sets the real day and time, and the receipt
+  // recorded with it takes the same moment so the cash book stays true.
+  const [invoiceAt, setInvoiceAt] = useState(() => toLocalInput(new Date()));
   const [estimateNo, setEstimateNo] = useState("");
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
@@ -327,6 +331,7 @@ export default function NewInvoicePage() {
           partyId,
           type,
           discount: Number(discount) || 0,
+          invoiceDate: fromLocalInput(invoiceAt),
           dueDate: dueDate || undefined,
           notes: notes || undefined,
           estimateNo: estimateNo.trim() || undefined,
@@ -351,6 +356,8 @@ export default function NewInvoicePage() {
           invoiceId: invoice.id,
           direction: type === "SALE" ? "IN" : "OUT",
           purpose: type === "SALE" ? "Customer Receipt" : "Supplier Payment",
+          // Money received with the bill is booked at the bill's time.
+          paymentDate: fromLocalInput(invoiceAt),
         };
         if (splitPay) {
           // One payment per method so the cash book tracks cash vs bank.
@@ -422,6 +429,20 @@ export default function NewInvoicePage() {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">Bill Date &amp; Time</label>
+            <input
+              type="datetime-local"
+              className="input"
+              value={invoiceAt}
+              max={toLocalInput(new Date(Date.now() + 24 * 3600 * 1000))}
+              onChange={(e) => setInvoiceAt(e.target.value)}
+              title="Set this to the real time the bill was made — entering later from the book is fine"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              Change if entering a bill from the book later. Any receipt taken now uses the same time.
+            </p>
           </div>
           <div>
             <label className="label">Due Date</label>
