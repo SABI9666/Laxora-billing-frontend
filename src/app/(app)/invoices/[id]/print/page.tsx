@@ -88,11 +88,35 @@ export default function InvoicePrintPage() {
   const router = useRouter();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [business, setBusiness] = useState<Business | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ invoice: Invoice }>(`/api/invoices/${id}`).then((r) => setInvoice(r.invoice));
-    api<{ business: Business }>("/api/business").then((r) => setBusiness(r.business));
+    setError(null);
+    api<{ invoice: Invoice }>(`/api/invoices/${id}`)
+      .then((r) => setInvoice(r.invoice))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load the bill"));
+    api<{ business: Business }>("/api/business")
+      .then((r) => setBusiness(r.business))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load shop details"));
   }, [id]);
+
+  if (error)
+    return (
+      <div className="mx-auto max-w-3xl p-8">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+          <p className="font-semibold">Could not open this bill</p>
+          <p className="mt-1">{error}</p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={() => window.location.reload()} className="btn-primary">
+              Try again
+            </button>
+            <button onClick={() => router.back()} className="btn-secondary">
+              ← Back
+            </button>
+          </div>
+        </div>
+      </div>
+    );
 
   if (!invoice || !business)
     return <div className="p-8 text-gray-400">Loading invoice…</div>;
