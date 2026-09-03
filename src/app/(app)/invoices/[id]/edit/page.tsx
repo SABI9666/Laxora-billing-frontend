@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, toLocalInput, fromLocalInput } from "@/lib/format";
 import BillAttachments from "@/components/BillAttachments";
 import PageHeader from "@/components/PageHeader";
 import ItemPicker from "@/components/ItemPicker";
@@ -75,6 +75,7 @@ export default function EditInvoicePage() {
   const [items, setItems] = useState<Item[]>([]);
   const [partyId, setPartyId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [invoiceAt, setInvoiceAt] = useState("");
   const [estimateNo, setEstimateNo] = useState("");
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
@@ -116,6 +117,7 @@ export default function EditInvoicePage() {
         )
       );
       setDueDate(i.dueDate ? i.dueDate.slice(0, 10) : "");
+      setInvoiceAt(i.invoiceDate ? toLocalInput(i.invoiceDate) : "");
       setEstimateNo((i as { estimateNo?: string | null }).estimateNo || "");
       setPayAmount(round2(Number(i.total) - Number(i.amountPaid)));
       // Reopen the bill in the mode it was entered in. Rates are stored
@@ -199,6 +201,7 @@ export default function EditInvoicePage() {
           partyId,
           type,
           discount: Number(discount) || 0,
+          invoiceDate: fromLocalInput(invoiceAt),
           dueDate: dueDate || undefined,
           notes: notes || undefined,
           estimateNo: estimateNo.trim() || undefined,
@@ -319,6 +322,16 @@ export default function EditInvoicePage() {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">Bill Date &amp; Time</label>
+            <input
+              type="datetime-local"
+              className="input"
+              value={invoiceAt}
+              onChange={(e) => setInvoiceAt(e.target.value)}
+              title="The real time the bill was made"
+            />
           </div>
           <div>
             <label className="label">Due Date</label>
