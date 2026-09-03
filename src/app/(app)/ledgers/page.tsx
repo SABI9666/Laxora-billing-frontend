@@ -17,6 +17,15 @@ type Row = {
 type Ledger = {
   party: { id: string; name: string; type: string; openingBalance: number };
   closingBalance: number;
+  // Reconciliation footer — the same figures the party list is built from.
+  totals?: {
+    billed: number;
+    received: number;
+    refunded: number;
+    returns: number;
+    chargesAdjusted: number;
+    chargesGiven: number;
+  };
   ledger: {
     date: string;
     kind: string;
@@ -189,6 +198,41 @@ export default function LedgersPage() {
                   </tbody>
                 </table>
               </div>
+              {ledger.totals && (
+                <div className="flex flex-wrap gap-x-5 gap-y-1 border-t bg-slate-50 px-5 py-2 text-xs text-slate-600">
+                  <span>
+                    Bills <b className="text-slate-800">{formatMoney(ledger.totals.billed)}</b>
+                  </span>
+                  <span>
+                    Received{" "}
+                    <b className="text-green-700">{formatMoney(ledger.totals.received)}</b>
+                  </span>
+                  {ledger.totals.returns > 0 && (
+                    <span>
+                      Returns <b className="text-slate-800">{formatMoney(ledger.totals.returns)}</b>
+                    </span>
+                  )}
+                  {ledger.totals.refunded > 0 && (
+                    <span>
+                      Refunded <b className="text-slate-800">{formatMoney(ledger.totals.refunded)}</b>
+                    </span>
+                  )}
+                  {ledger.totals.chargesAdjusted > 0 && (
+                    <span>
+                      Charges adjusted{" "}
+                      <b className="text-slate-800">
+                        {formatMoney(ledger.totals.chargesAdjusted)}
+                      </b>
+                    </span>
+                  )}
+                  {ledger.totals.chargesGiven > 0 && (
+                    <span title="Commission / charges given to this party out of the bill value — not a receipt">
+                      Commission given{" "}
+                      <b className="text-slate-800">{formatMoney(ledger.totals.chargesGiven)}</b>
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between border-t px-5 py-3">
                 <span className="font-semibold">
                   {ledger.closingBalance > 0
