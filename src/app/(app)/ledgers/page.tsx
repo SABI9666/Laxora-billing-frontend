@@ -5,7 +5,12 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
-import LedgerItems, { type LedgerItem } from "@/components/LedgerItems";
+import LedgerItems, {
+  LedgerBills,
+  LedgerKind,
+  type LedgerBill,
+  type LedgerItem,
+} from "@/components/LedgerItems";
 
 type Row = {
   id: string;
@@ -18,6 +23,8 @@ type Row = {
 type Ledger = {
   party: { id: string; name: string; type: string; openingBalance: number };
   closingBalance: number;
+  // Where each bill stands after additions, returns, refunds and receipts.
+  bills?: LedgerBill[];
   // Reconciliation footer — the same figures the party list is built from.
   totals?: {
     billed: number;
@@ -103,9 +110,9 @@ export default function LedgersPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Party balances */}
-        <div className="card p-0">
+        <div className="card p-0 lg:col-span-1">
           <div className="border-b px-5 py-3 font-semibold">
             {isCustomer ? "Customers" : "Suppliers"}
           </div>
@@ -113,10 +120,10 @@ export default function LedgersPage() {
             <table className="w-full">
               <thead className="sticky top-0 bg-gray-50">
                 <tr>
-                  <th className="table-th">Name</th>
-                  <th className="table-th text-right">Billed</th>
-                  <th className="table-th text-right">Paid</th>
-                  <th className="table-th text-right">Balance</th>
+                  <th className="table-th w-full !px-3">Name</th>
+                  <th className="table-th !px-3 text-right">Billed</th>
+                  <th className="table-th !px-3 text-right">Paid</th>
+                  <th className="table-th !px-3 text-right">Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -128,16 +135,16 @@ export default function LedgersPage() {
                     }`}
                     onClick={() => openLedger(r.id)}
                   >
-                    <td className="table-td font-medium text-brand">
+                    <td className="table-td w-full break-words !px-3 font-medium text-brand">
                       {r.name}
                       {loadingId === r.id && (
                         <span className="ml-2 text-xs font-normal text-gray-400">loading…</span>
                       )}
                     </td>
-                    <td className="table-td text-right">{formatMoney(r.billed)}</td>
-                    <td className="table-td text-right">{formatMoney(r.paid)}</td>
+                    <td className="table-td whitespace-nowrap !px-3 text-right">{formatMoney(r.billed)}</td>
+                    <td className="table-td whitespace-nowrap !px-3 text-right">{formatMoney(r.paid)}</td>
                     <td
-                      className={`table-td text-right font-semibold ${
+                      className={`table-td whitespace-nowrap !px-3 text-right font-semibold ${
                         r.balance > 0 ? "text-red-600" : r.balance < 0 ? "text-green-700" : ""
                       }`}
                     >
@@ -162,7 +169,7 @@ export default function LedgersPage() {
         </div>
 
         {/* Ledger detail */}
-        <div className="card p-0">
+        <div className="card p-0 lg:col-span-2">
           <div className="flex items-center justify-between border-b px-5 py-3 font-semibold">
             <span>{ledger ? `${ledger.party.name} — Ledger` : "Select a name to view ledger"}</span>
             {ledger && (
@@ -192,44 +199,47 @@ export default function LedgersPage() {
           )}
           {ledger && (
             <>
-              <div className="max-h-[28rem] overflow-y-auto">
+              <div className="max-h-[36rem] overflow-auto">
                 <table className="w-full">
                   <thead className="sticky top-0 bg-gray-50">
                     <tr>
-                      <th className="table-th">Date</th>
-                      <th className="table-th">Detail</th>
-                      <th className="table-th text-right">Billed</th>
-                      <th className="table-th text-right">Paid / Return</th>
-                      <th className="table-th text-right">Balance</th>
+                      <th className="table-th !px-2">Date</th>
+                      <th className="table-th w-full !px-2">Particulars</th>
+                      <th className="table-th whitespace-nowrap !px-2 text-right" title="Adds to what is owed">
+                        Owed (+)
+                      </th>
+                      <th className="table-th whitespace-nowrap !px-2 text-right" title="Reduces what is owed">
+                        Paid / Returned (−)
+                      </th>
+                      <th className="table-th !px-2 text-right">Balance</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     <tr>
-                      <td className="table-td text-gray-400" colSpan={4}>
+                      <td className="table-td !px-2 text-gray-400" colSpan={4}>
                         Opening balance
                       </td>
-                      <td className="table-td text-right">
+                      <td className="table-td !px-2 text-right">
                         {formatMoney(ledger.party.openingBalance)}
                       </td>
                     </tr>
                     {ledger.ledger.map((e, i) => (
                       <tr key={i}>
-                        <td className="table-td">{formatDate(e.date)}</td>
-                        <td className="table-td align-top">
-                          <span className="font-medium text-slate-800">{e.kind}</span>
-                          {e.ref ? <span className="text-slate-500"> · {e.ref}</span> : ""}
+                        <td className="table-td whitespace-nowrap !px-2 align-top">{formatDate(e.date)}</td>
+                        <td className="table-td w-full max-w-0 !px-2 align-top">
+                          <LedgerKind kind={e.kind} refNo={e.ref} />
                           {e.note && (
-                            <div className="text-xs text-slate-400">{e.note}</div>
+                            <div className="mt-0.5 text-xs text-slate-500">{e.note}</div>
                           )}
                           <LedgerItems items={e.items} />
                         </td>
-                        <td className="table-td text-right align-top">
+                        <td className="table-td whitespace-nowrap !px-2 text-right align-top">
                           {e.debit ? formatMoney(e.debit) : "—"}
                         </td>
-                        <td className="table-td text-right align-top text-green-700">
+                        <td className="table-td whitespace-nowrap !px-2 text-right align-top text-green-700">
                           {e.credit ? formatMoney(e.credit) : "—"}
                         </td>
-                        <td className="table-td text-right align-top font-medium">
+                        <td className="table-td whitespace-nowrap !px-2 text-right align-top font-medium">
                           {formatMoney(e.balance)}
                         </td>
                       </tr>
@@ -237,6 +247,11 @@ export default function LedgersPage() {
                   </tbody>
                 </table>
               </div>
+              {ledger.bills && ledger.bills.length > 0 && (
+                <div className="border-t px-5 pb-3">
+                  <LedgerBills bills={ledger.bills} isCustomer={isCustomer} compact />
+                </div>
+              )}
               {ledger.totals && (
                 <div className="flex flex-wrap gap-x-5 gap-y-1 border-t bg-slate-50 px-5 py-2 text-xs text-slate-600">
                   <span>
