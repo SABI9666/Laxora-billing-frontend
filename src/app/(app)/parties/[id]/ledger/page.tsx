@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
+import LedgerItems, { type LedgerItem } from "@/components/LedgerItems";
 
 type Entry = {
   date: string;
   kind: string;
   ref: string;
   note?: string;
+  items?: LedgerItem[];
   debit: number;
   credit: number;
   balance: number;
@@ -127,6 +129,7 @@ export default function PartyLedgerPage() {
                   {e.kind}
                   {e.ref ? ` · ${e.ref}` : ""}
                   {e.note && <div className="text-xs text-gray-500">{e.note}</div>}
+                  <LedgerItems items={e.items} />
                 </td>
                 <td className="py-1.5 pr-2 text-right">{e.debit ? formatMoney(e.debit) : "—"}</td>
                 <td className="py-1.5 pr-2 text-right">{e.credit ? formatMoney(e.credit) : "—"}</td>
