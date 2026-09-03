@@ -23,6 +23,9 @@ type Invoice = {
   // money the customer handed over, so returns have to come off separately for
   // the pending figure to be right.
   returnedAmount?: number | null;
+  // Money paid back on this bill (cash refunded on a return). The customer
+  // walked away with it, so it is owed again — it must be added back.
+  refundedAmount?: number | null;
 };
 
 const DAY = 86400000;
@@ -217,7 +220,12 @@ export default function InvoicesPage() {
   // exchange) do not touch amountPaid, so without this a bill the customer has
   // already squared up would keep showing a pending amount.
   const dueOf = (inv: Invoice) =>
-    r2(Number(inv.total) - Number(inv.amountPaid) - Number(inv.returnedAmount ?? 0));
+    r2(
+      Number(inv.total) -
+        Number(inv.amountPaid) -
+        Number(inv.returnedAmount ?? 0) +
+        Number(inv.refundedAmount ?? 0)
+    );
   const isOverdue = (inv: Invoice) =>
     inv.type === "SALE" && dueOf(inv) > 0.009 && daysSince(inv.invoiceDate) >= OVERDUE_DAYS;
 
@@ -292,7 +300,9 @@ export default function InvoicesPage() {
     setNotice("");
     setReason("");
     setRetQty({});
-    setRefundMethod("CASH");
+    // A bill that still has money pending is settled by cutting what is owed,
+    // not by handing cash back; only a fully-paid bill defaults to a refund.
+    setRefundMethod(dueOf(inv) > 0.009 ? "NONE" : "CASH");
     setReturnsList([]);
     setLines([]);
     // Reset the exchange section.
@@ -606,6 +616,7 @@ export default function InvoicesPage() {
               {visible.map((inv) => {
                 const due = dueOf(inv);
                 const returned = Number(inv.returnedAmount ?? 0);
+                const refunded = Number(inv.refundedAmount ?? 0);
                 const profit = inv.profit;
                 const overdue = isOverdue(inv);
                 const lateDays = daysSince(inv.invoiceDate);
@@ -643,9 +654,14 @@ export default function InvoicesPage() {
                       {returned > 0.009 && (
                         <div
                           className="text-xs font-semibold text-amber-600"
-                          title="Value returned / exchanged out of this bill"
+                          title={
+                            refunded > 0.009
+                              ? "Goods returned, and cash paid back — the refund is owed again"
+                              : "Value returned / exchanged out of this bill"
+                          }
                         >
                           ↩ {formatMoney(returned)} returned
+                          {refunded > 0.009 ? ` · ${formatMoney(refunded)} refunded` : ""}
                         </div>
                       )}
                       {inv.type === "SALE" && profit != null && (
@@ -1163,16 +1179,47 @@ export default function InvoicesPage() {
                         setRefundMethod(e.target.value as "CASH" | "BANK" | "NONE")
                       }
                     >
+                      <option value="NONE">
+                        No cash paid — reduce what the customer owes on this bill
+                      </option>
                       <option value="CASH">Cash — pay back from the cash drawer</option>
                       <option value="BANK">Bank — refund to bank</option>
-                      <option value="NONE">
-                        No cash paid — credit the customer&apos;s ledger only
-                      </option>
                     </select>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Cash or Bank records a refund voucher so your cash book drops by the
-                      returned amount. Use ledger credit for account customers.
-                    </p>
+                    {(() => {
+                      const dueNow = returnInv ? dueOf(returnInv) : 0;
+                      const ret = r2(returnGross);
+                      if (ret <= 0.009)
+                        return (
+                          <p className="mt-1 text-xs text-gray-500">
+                            Enter a quantity above to see what this does to the bill.
+                          </p>
+                        );
+                      if (refundMethod === "NONE")
+                        return (
+                          <p className="mt-1 text-xs text-gray-500">
+                            No money moves. Pending on this bill goes from{" "}
+                            <b>{formatMoney(Math.max(0, dueNow))}</b> to{" "}
+                            <b>{formatMoney(Math.max(0, r2(dueNow - ret)))}</b>
+                            {dueNow - ret < -0.009
+                              ? ` and ${formatMoney(r2(ret - dueNow))} stays as a credit on their ledger`
+                              : ""}
+                            .
+                          </p>
+                        );
+                      return (
+                        <p
+                          className={`mt-1 rounded-md px-2 py-1 text-xs ${
+                            dueNow > 0.009 ? "bg-amber-50 text-amber-800" : "text-gray-500"
+                          }`}
+                        >
+                          {formatMoney(ret)} leaves the{" "}
+                          {refundMethod === "BANK" ? "bank" : "cash drawer"} and the customer
+                          still owes <b>{formatMoney(Math.max(0, dueNow))}</b> on this bill.
+                          {dueNow > 0.009 &&
+                            " ⚠ This bill is not fully paid — pick this only if you really handed money back; otherwise choose \"No cash paid\" so the return reduces what they owe."}
+                        </p>
+                      );
+                    })()}
                   </div>
                 )}
                 <div>

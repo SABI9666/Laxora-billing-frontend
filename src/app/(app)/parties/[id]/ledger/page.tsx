@@ -24,6 +24,15 @@ type Ledger = {
     openingBalance: number;
   };
   closingBalance: number;
+  // Reconciliation footer — the same figures the party list is built from.
+  totals?: {
+    billed: number;
+    received: number;
+    refunded: number;
+    returns: number;
+    chargesAdjusted: number;
+    chargesGiven: number;
+  };
   ledger: Entry[];
 };
 type Business = {
@@ -127,6 +136,36 @@ export default function PartyLedgerPage() {
           </tbody>
         </table>
 
+        {data.totals && (
+          <div className="mt-2 flex flex-wrap justify-end gap-x-5 gap-y-1 text-xs text-gray-600">
+            <span>
+              Bills <b>{formatMoney(data.totals.billed)}</b>
+            </span>
+            <span>
+              Received <b>{formatMoney(data.totals.received)}</b>
+            </span>
+            {data.totals.returns > 0 && (
+              <span>
+                Returns <b>{formatMoney(data.totals.returns)}</b>
+              </span>
+            )}
+            {data.totals.refunded > 0 && (
+              <span>
+                Refunded <b>{formatMoney(data.totals.refunded)}</b>
+              </span>
+            )}
+            {data.totals.chargesAdjusted > 0 && (
+              <span>
+                Charges adjusted <b>{formatMoney(data.totals.chargesAdjusted)}</b>
+              </span>
+            )}
+            {data.totals.chargesGiven > 0 && (
+              <span>
+                Commission given <b>{formatMoney(data.totals.chargesGiven)}</b>
+              </span>
+            )}
+          </div>
+        )}
         <div className="mt-3 flex justify-end border-t-2 border-gray-800 pt-2">
           <div className="w-72 text-right">
             <span className="text-sm font-bold">
