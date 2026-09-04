@@ -13,6 +13,8 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 
 type Party = { id: string; name: string; type: string };
+// What a party's ledger says they owe (or are owed) right now.
+type PartySummary = { id: string; balance: number };
 type Invoice = {
   id: string;
   invoiceNumber: string;
@@ -80,6 +82,7 @@ const empty = {
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
+  const [balances, setBalances] = useState<Map<string, number>>(new Map());
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [open, setOpen] = useState(false);
   // IN = credit voucher (money received), OUT = payment voucher (money given).
@@ -101,6 +104,19 @@ export default function PaymentsPage() {
   useEffect(() => {
     load();
     api<{ parties: Party[] }>("/api/parties").then((r) => setParties(r.parties));
+    // Ledger balances. A party can owe money with no pending bill at all — an
+    // opening balance carried in from before the software, or entries not tied
+    // to a bill — and the voucher has to say so instead of calling it advance.
+    Promise.all([
+      api<{ parties: PartySummary[] }>("/api/parties/summary?type=CUSTOMER"),
+      api<{ parties: PartySummary[] }>("/api/parties/summary?type=SUPPLIER"),
+    ])
+      .then(([c, s]) =>
+        setBalances(new Map([...c.parties, ...s.parties].map((p) => [p.id, p.balance])))
+      )
+      .catch(() => {
+        /* the dialog just falls back to the plain message */
+      });
   }, []);
 
   // Load that party's unpaid bills (sales for credit, purchases for payment).
@@ -429,10 +445,20 @@ export default function PaymentsPage() {
                   )}
                 </div>
                 {invoices.length === 0 ? (
-                  <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                    ✓ No pending bills — this will be kept as an advance on their ledger and
-                    applied to their next bill automatically.
-                  </p>
+                  (balances.get(form.partyId) ?? 0) > 0.009 ? (
+                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      No bill is pending, but their ledger still shows{" "}
+                      <b>{formatMoney(balances.get(form.partyId) ?? 0)}</b>{" "}
+                      {isCredit ? "receivable" : "payable"} — carried in as their opening
+                      balance, or from entries not tied to a bill. This voucher comes off that
+                      balance.
+                    </p>
+                  ) : (
+                    <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      ✓ Nothing outstanding — this will be kept as an advance on their ledger
+                      and applied to their next bill automatically.
+                    </p>
+                  )
                 ) : (
                   <div className="max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
                     {invoices.map((i) => {
@@ -516,6 +542,24 @@ export default function PaymentsPage() {
                     </p>
                   )
                 )}
+                {/* The ledger can be higher than these bills add up to — an
+                    opening balance, or entries never tied to a bill. Saying so
+                    here stops the two figures looking contradictory. */}
+                {invoices.length > 0 &&
+                  (() => {
+                    const billsDue = invoices.reduce((s, i) => s + dueOf(i), 0);
+                    const ledgerDue = balances.get(form.partyId) ?? 0;
+                    const extra = Math.round((ledgerDue - billsDue) * 100) / 100;
+                    if (extra <= 0.009) return null;
+                    return (
+                      <p className="mt-1 text-xs text-amber-700">
+                        These bills add up to {formatMoney(billsDue)}, but their ledger shows{" "}
+                        {formatMoney(ledgerDue)} {isCredit ? "receivable" : "payable"} — the
+                        other {formatMoney(extra)} is their opening balance or entries not tied
+                        to a bill.
+                      </p>
+                    );
+                  })()}
               </div>
             )}
 

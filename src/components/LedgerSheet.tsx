@@ -116,6 +116,11 @@ export default function LedgerSheet({ data, business }: { data: Ledger; business
 
         {data.totals && (
           <div className="mt-2 flex flex-wrap justify-end gap-x-5 gap-y-1 text-xs text-gray-600">
+            {Math.abs(data.party.openingBalance) > 0.009 && (
+              <span>
+                Opening <b>{formatMoney(data.party.openingBalance)}</b>
+              </span>
+            )}
             <span>
               Bills <b>{formatMoney(data.totals.billed)}</b>
             </span>

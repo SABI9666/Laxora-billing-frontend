@@ -272,6 +272,14 @@ export default function LedgersPage() {
               )}
               {ledger.totals && (
                 <div className="flex flex-wrap gap-x-5 gap-y-1 border-t bg-slate-50 px-5 py-2 text-xs text-slate-600">
+                  {Math.abs(ledger.party.openingBalance) > 0.009 && (
+                    <span title="Balance carried in when this party was created — it is part of the closing balance below">
+                      Opening{" "}
+                      <b className="text-slate-800">
+                        {formatMoney(ledger.party.openingBalance)}
+                      </b>
+                    </span>
+                  )}
                   <span>
                     Bills <b className="text-slate-800">{formatMoney(ledger.totals.billed)}</b>
                   </span>
