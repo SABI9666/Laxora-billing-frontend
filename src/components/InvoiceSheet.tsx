@@ -378,7 +378,12 @@ export default function InvoiceSheet({ invoice, business }: { invoice: Invoice; 
               </tr>
               {refunded > 0 && (
                 <tr>
-                  <td className="py-0.5 text-gray-500">Refunded back</td>
+                  <td className="py-0.5 text-gray-500">
+                    Refunded back
+                    <span className="block text-[10px] text-gray-400">
+                      money handed back on a return
+                    </span>
+                  </td>
                   <td className="py-0.5 text-right">+ {formatMoney(refunded)}</td>
                 </tr>
               )}

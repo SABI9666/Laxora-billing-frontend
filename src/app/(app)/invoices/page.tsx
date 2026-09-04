@@ -76,9 +76,11 @@ export default function InvoicesPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [retQty, setRetQty] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("");
-  // How the customer is paid back for the returned goods. CASH/BANK records an
-  // OUT voucher so the cash book drops; NONE only credits the customer ledger.
-  const [refundMethod, setRefundMethod] = useState<"CASH" | "BANK" | "NONE">("CASH");
+  // Whether money was actually handed back for the returned goods. Returning
+  // goods normally just cuts the bill down — NONE — and no money moves.
+  // CASH/BANK are only for the rarer case where the shop really paid out, and
+  // they record an OUT voucher so the cash book drops.
+  const [refundMethod, setRefundMethod] = useState<"CASH" | "BANK" | "NONE">("NONE");
   // Returns already recorded against the open bill, so a wrong one can be undone.
   const [returnsList, setReturnsList] = useState<CreditNote[]>([]);
   const [error, setError] = useState("");
@@ -301,9 +303,9 @@ export default function InvoicesPage() {
     setNotice("");
     setReason("");
     setRetQty({});
-    // A bill that still has money pending is settled by cutting what is owed,
-    // not by handing cash back; only a fully-paid bill defaults to a refund.
-    setRefundMethod(dueOf(inv) > 0.009 ? "NONE" : "CASH");
+    // Goods coming back reduce the bill; money only leaves the shop if the
+    // biller says so, so every return starts as an adjustment.
+    setRefundMethod("NONE");
     setReturnsList([]);
     setLines([]);
     // Reset the exchange section.
@@ -327,10 +329,16 @@ export default function InvoicesPage() {
   );
   const exchValid = exchLines.filter((l) => l.description && l.quantity > 0);
   const exchGross = exchValid.reduce((s, l) => {
-    const net = exchInclusive ? l.rate / (1 + l.taxRate / 100) : l.rate;
-    return s + l.quantity * net * (1 + l.taxRate / 100);
+    // A product picked but not yet priced would otherwise read as NaN and make
+    // the difference look like an even exchange.
+    const rate = Number(l.rate) || 0;
+    const taxRate = Number(l.taxRate) || 0;
+    const net = exchInclusive ? rate / (1 + taxRate / 100) : rate;
+    return s + l.quantity * net * (1 + taxRate / 100);
   }, 0);
   const exchDiff = r2(exchGross - returnGross);
+  // Products chosen for the exchange that still have no price on them.
+  const exchUnpriced = exchValid.filter((l) => !(Number(l.rate) > 0));
 
   async function submitReturn(e: React.FormEvent) {
     e.preventDefault();
@@ -427,6 +435,38 @@ export default function InvoicesPage() {
   // approval; once approved the stock the return added is removed, the returned
   // quantity is freed (items count as sold again), and any cash refund is
   // reversed.
+  // A return marked "refunded" means cash left the drawer, so the returned
+  // value comes off the bill and the refund is owed again — the due does not
+  // move. When no money actually changed hands the refund has to go, which
+  // drops the due by the returned value.
+  async function cancelRefund(cn: CreditNote) {
+    if (!returnInv) return;
+    if (
+      !confirm(
+        `This return of ${formatMoney(cn.totalAmount)} is recorded as refunded in ${(
+          cn.refundMethod ?? "cash"
+        ).toLowerCase()}.\n\nRemove the refund and adjust the return against the bill instead? The bill's pending amount drops by ${formatMoney(
+          cn.totalAmount
+        )} and the cash book no longer shows this money going out.`
+      )
+    )
+      return;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/invoices/${returnInv.id}/return/${cn.id}/refund`, { method: "DELETE" });
+      setNotice(
+        `Refund removed — the return of ${formatMoney(cn.totalAmount)} is now adjusted against the bill.`
+      );
+      await refreshReturnModal(returnInv.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to remove the refund");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteReturn(cn: CreditNote) {
     if (!returnInv) return;
     if (
@@ -664,6 +704,17 @@ export default function InvoicesPage() {
                           ↩ {formatMoney(returned)} returned
                           {refunded > 0.009 ? ` · ${formatMoney(refunded)} refunded` : ""}
                         </div>
+                      )}
+                      {/* A refund on a bill that is still pending almost always
+                          means the return was adjusted, not paid out in cash. */}
+                      {refunded > 0.009 && due > 0.009 && (
+                        <button
+                          onClick={() => openReturn(inv)}
+                          className="text-xs font-medium text-amber-700 underline decoration-dotted"
+                          title="Open the Return dialog to remove the refund if no cash was handed back"
+                        >
+                          refund keeps the due up — fix
+                        </button>
                       )}
                       {inv.type === "SALE" && profit != null && (
                         <div
@@ -1073,26 +1124,76 @@ export default function InvoicesPage() {
                       + Another product
                     </button>
 
-                    {/* Live settlement of the exchange difference. */}
-                    <div className="rounded-lg bg-white px-3 py-2 text-sm text-gray-600">
-                      Returning <b>{formatMoney(returnGross)}</b> · taking{" "}
-                      <b>{formatMoney(exchGross)}</b> →{" "}
-                      {exchDiff > 0.009 ? (
-                        <b className="text-rose-600">
-                          customer pays {formatMoney(exchDiff)} extra
-                        </b>
-                      ) : exchDiff < -0.009 ? (
-                        <b className="text-emerald-600">
-                          customer gets back {formatMoney(-exchDiff)}
-                        </b>
-                      ) : (
-                        <b className="text-emerald-600">even exchange</b>
-                      )}
-                    </div>
+                    {/* An exchange only settles the GAP between the goods
+                        coming back and the goods going out — the difference.
+                        Everything else nets off on the same bill. */}
+                    {(() => {
+                      const dueNow = returnInv ? Math.max(0, dueOf(returnInv)) : 0;
+                      const collectedNow =
+                        exchDiff > 0.009 && exchPay !== "NONE"
+                          ? exchPay === "FULL"
+                            ? exchDiff
+                            : Math.min(Math.max(r2(exchPayAmount), 0), exchDiff)
+                          : 0;
+                      const refundedNow =
+                        exchDiff < -0.009 && exchRefund !== "ADJUST" ? -exchDiff : 0;
+                      const newDue = r2(dueNow + exchDiff - collectedNow + refundedNow);
+                      return (
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                          <div className="flex justify-between text-gray-600">
+                            <span>Goods returned</span>
+                            <span className="tabular-nums">− {formatMoney(returnGross)}</span>
+                          </div>
+                          <div className="flex justify-between text-gray-600">
+                            <span>New goods taken</span>
+                            <span className="tabular-nums">+ {formatMoney(exchGross)}</span>
+                          </div>
+                          <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
+                            <span>Difference</span>
+                            {exchUnpriced.length > 0 ? (
+                              <span className="text-amber-700">
+                                enter a rate for {exchUnpriced[0].description}
+                              </span>
+                            ) : exchDiff > 0.009 ? (
+                              <span className="text-rose-600">
+                                customer pays {formatMoney(exchDiff)} more
+                              </span>
+                            ) : exchDiff < -0.009 ? (
+                              <span className="text-emerald-600">
+                                customer is owed {formatMoney(-exchDiff)}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600">
+                                even exchange — nothing to settle
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            className={`mt-1 flex justify-between border-t pt-1 text-xs text-gray-500 ${
+                              exchUnpriced.length > 0 ? "hidden" : ""
+                            }`}
+                          >
+                            <span>Pending on this bill</span>
+                            <span className="tabular-nums">
+                              {formatMoney(dueNow)} →{" "}
+                              <b className={newDue > 0.009 ? "text-rose-600" : "text-emerald-700"}>
+                                {formatMoney(Math.max(0, newDue))}
+                              </b>
+                              {newDue < -0.009
+                                ? ` · ${formatMoney(-newDue)} credit on their ledger`
+                                : ""}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
-                    {exchDiff > 0.009 && (
+                    {/* Costlier replacement: the customer owes the gap. */}
+                    {exchDiff > 0.009 && exchUnpriced.length === 0 && (
                       <div className="space-y-2">
-                        <label className="label">Payment of the extra amount</label>
+                        <label className="label">
+                          Is the customer paying the {formatMoney(exchDiff)} extra now?
+                        </label>
                         <div className="grid grid-cols-3 gap-2">
                           {(["FULL", "PARTIAL", "NONE"] as const).map((opt) => (
                             <button
@@ -1106,10 +1207,10 @@ export default function InvoicesPage() {
                               }`}
                             >
                               {opt === "FULL"
-                                ? "Paid now"
+                                ? "Yes, full"
                                 : opt === "PARTIAL"
-                                ? "Partially paid"
-                                : "Unpaid"}
+                                ? "Part now"
+                                : "No, add to pending"}
                             </button>
                           ))}
                         </div>
@@ -1139,17 +1240,21 @@ export default function InvoicesPage() {
                         )}
                         <p className="text-xs text-gray-400">
                           {exchPay === "NONE"
-                            ? "Nothing collected now — the extra stays pending on this bill and shows in the overdue list."
-                            : `Adds to the shop's ${
+                            ? "Nothing collected now — the extra stays pending on this bill and shows in the ledger as owed."
+                            : `Recorded as money received on this bill and added to the shop's ${
                                 exchPayMethod === "BANK" ? "bank" : "cash"
-                              } balance in the admin cash book. Anything not paid now stays pending on this bill.`}
+                              } balance. Anything not paid now stays pending.`}
                         </p>
                       </div>
                     )}
 
-                    {exchDiff < -0.009 && (
+                    {/* Cheaper replacement: the shop owes the gap. Normally it
+                        just comes off the bill; money leaves only if said so. */}
+                    {exchDiff < -0.009 && exchUnpriced.length === 0 && (
                       <div>
-                        <label className="label">Give back the difference via</label>
+                        <label className="label">
+                          Do you need to give the {formatMoney(-exchDiff)} back?
+                        </label>
                         <select
                           className="input"
                           value={exchRefund}
@@ -1158,23 +1263,27 @@ export default function InvoicesPage() {
                           }
                         >
                           <option value="ADJUST">
-                            Adjust against this bill / customer&apos;s ledger (no cash)
+                            No — take it off this bill / keep as credit (normal)
                           </option>
-                          <option value="CASH">Refund cash from the drawer</option>
-                          <option value="BANK">Refund to bank</option>
+                          <option value="CASH">Yes — cash from the drawer</option>
+                          <option value="BANK">Yes — transfer to their bank</option>
                         </select>
-                        <p className="mt-1 text-xs text-gray-400">
+                        <p className="mt-1 text-xs text-gray-500">
                           {exchRefund === "ADJUST"
-                            ? "No money moves — it stays as a credit on the customer's ledger."
-                            : `The shop's ${
-                                exchRefund === "BANK" ? "bank" : "cash"
-                              } balance in the admin cash book drops by ${formatMoney(-exchDiff)}.`}
+                            ? dueOf(returnInv) > 0.009
+                              ? `No money moves — ${formatMoney(
+                                  -exchDiff
+                                )} comes off what is still pending on this bill.`
+                              : "No money moves — it stays as a credit on the customer's ledger and comes off their next bill."
+                            : `${formatMoney(-exchDiff)} leaves the ${
+                                exchRefund === "BANK" ? "bank account" : "cash drawer"
+                              } and shows in the admin cash book.`}
                         </p>
                         {exchRefund !== "ADJUST" && dueOf(returnInv) > 0.009 && (
                           <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
                             ⚠ This bill still has {formatMoney(dueOf(returnInv))} pending —
-                            only pay back money the customer has actually handed over.
-                            Otherwise use <b>Adjust</b> so it comes off what they owe.
+                            pay back only money the customer actually handed over. Otherwise
+                            choose <b>No</b> so it comes off what they owe.
                           </p>
                         )}
                       </div>
@@ -1184,7 +1293,7 @@ export default function InvoicesPage() {
 
                 {!exch && (
                   <div>
-                    <label className="label">Refund the customer via</label>
+                    <label className="label">Did you hand money back?</label>
                     <select
                       className="input"
                       value={refundMethod}
@@ -1193,10 +1302,10 @@ export default function InvoicesPage() {
                       }
                     >
                       <option value="NONE">
-                        No cash paid — reduce what the customer owes on this bill
+                        No — just reduce this bill by the returned value (normal)
                       </option>
-                      <option value="CASH">Cash — pay back from the cash drawer</option>
-                      <option value="BANK">Bank — refund to bank</option>
+                      <option value="CASH">Yes — cash paid back from the drawer</option>
+                      <option value="BANK">Yes — refunded to their bank</option>
                     </select>
                     {(() => {
                       const dueNow = returnInv ? dueOf(returnInv) : 0;
@@ -1210,7 +1319,8 @@ export default function InvoicesPage() {
                       if (refundMethod === "NONE")
                         return (
                           <p className="mt-1 text-xs text-gray-500">
-                            No money moves. Pending on this bill goes from{" "}
+                            No money moves — <b>{formatMoney(ret)}</b> simply comes off this
+                            bill. Pending goes from{" "}
                             <b>{formatMoney(Math.max(0, dueNow))}</b> to{" "}
                             <b>{formatMoney(Math.max(0, r2(dueNow - ret)))}</b>
                             {dueNow - ret < -0.009
@@ -1226,10 +1336,11 @@ export default function InvoicesPage() {
                           }`}
                         >
                           {formatMoney(ret)} leaves the{" "}
-                          {refundMethod === "BANK" ? "bank" : "cash drawer"} and the customer
-                          still owes <b>{formatMoney(Math.max(0, dueNow))}</b> on this bill.
-                          {dueNow > 0.009 &&
-                            " ⚠ This bill is not fully paid — pick this only if you really handed money back; otherwise choose \"No cash paid\" so the return reduces what they owe."}
+                          {refundMethod === "BANK" ? "bank account" : "cash drawer"} and the
+                          bill still comes to{" "}
+                          <b>{formatMoney(Math.max(0, dueNow))}</b> pending, because the goods
+                          coming back and the money going out cancel each other.
+                          {" ⚠ Pick this only if you actually counted money out to the customer; otherwise choose \"No\" so the return reduces the bill."}
                         </p>
                       );
                     })()}
@@ -1273,18 +1384,37 @@ export default function InvoicesPage() {
                           {" · "}
                           {cn.refundMethod
                             ? `refunded ${cn.refundMethod.toLowerCase()}`
-                            : "ledger credit"}
+                            : "adjusted against the bill"}
                           {cn.reason ? ` · ${cn.reason}` : ""}
                         </span>
+                        {cn.refundMethod && (
+                          <p className="mt-0.5 text-[11px] text-amber-700">
+                            Money was handed back, so this return does not reduce the pending
+                            amount. If no cash was actually given, remove the refund.
+                          </p>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => deleteReturn(cn)}
-                        disabled={saving}
-                        className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        Request delete
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {cn.refundMethod && (
+                          <button
+                            type="button"
+                            onClick={() => cancelRefund(cn)}
+                            disabled={saving}
+                            className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                            title="No cash was given back — adjust this return against the bill instead"
+                          >
+                            No cash given back
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => deleteReturn(cn)}
+                          disabled={saving}
+                          className="rounded border border-red-300 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Request delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1302,7 +1432,16 @@ export default function InvoicesPage() {
                 {lines.length > 0 ? "Cancel" : "Close"}
               </button>
               {lines.length > 0 && (
-                <button type="submit" className="btn-primary" disabled={saving}>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={saving || (exch && exchUnpriced.length > 0)}
+                  title={
+                    exch && exchUnpriced.length > 0
+                      ? "Every product taken in exchange needs a rate"
+                      : undefined
+                  }
+                >
                   {saving ? "Processing…" : exch ? "Record Exchange" : "Record Return"}
                 </button>
               )}
