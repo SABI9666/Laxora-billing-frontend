@@ -76,9 +76,11 @@ export default function InvoicesPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [retQty, setRetQty] = useState<Record<string, number>>({});
   const [reason, setReason] = useState("");
-  // How the customer is paid back for the returned goods. CASH/BANK records an
-  // OUT voucher so the cash book drops; NONE only credits the customer ledger.
-  const [refundMethod, setRefundMethod] = useState<"CASH" | "BANK" | "NONE">("CASH");
+  // Whether money was actually handed back for the returned goods. Returning
+  // goods normally just cuts the bill down — NONE — and no money moves.
+  // CASH/BANK are only for the rarer case where the shop really paid out, and
+  // they record an OUT voucher so the cash book drops.
+  const [refundMethod, setRefundMethod] = useState<"CASH" | "BANK" | "NONE">("NONE");
   // Returns already recorded against the open bill, so a wrong one can be undone.
   const [returnsList, setReturnsList] = useState<CreditNote[]>([]);
   const [error, setError] = useState("");
@@ -301,9 +303,9 @@ export default function InvoicesPage() {
     setNotice("");
     setReason("");
     setRetQty({});
-    // A bill that still has money pending is settled by cutting what is owed,
-    // not by handing cash back; only a fully-paid bill defaults to a refund.
-    setRefundMethod(dueOf(inv) > 0.009 ? "NONE" : "CASH");
+    // Goods coming back reduce the bill; money only leaves the shop if the
+    // biller says so, so every return starts as an adjustment.
+    setRefundMethod("NONE");
     setReturnsList([]);
     setLines([]);
     // Reset the exchange section.
@@ -1227,7 +1229,7 @@ export default function InvoicesPage() {
 
                 {!exch && (
                   <div>
-                    <label className="label">Refund the customer via</label>
+                    <label className="label">Did you hand money back?</label>
                     <select
                       className="input"
                       value={refundMethod}
@@ -1236,10 +1238,10 @@ export default function InvoicesPage() {
                       }
                     >
                       <option value="NONE">
-                        No cash paid — reduce what the customer owes on this bill
+                        No — just reduce this bill by the returned value (normal)
                       </option>
-                      <option value="CASH">Cash — pay back from the cash drawer</option>
-                      <option value="BANK">Bank — refund to bank</option>
+                      <option value="CASH">Yes — cash paid back from the drawer</option>
+                      <option value="BANK">Yes — refunded to their bank</option>
                     </select>
                     {(() => {
                       const dueNow = returnInv ? dueOf(returnInv) : 0;
@@ -1253,7 +1255,8 @@ export default function InvoicesPage() {
                       if (refundMethod === "NONE")
                         return (
                           <p className="mt-1 text-xs text-gray-500">
-                            No money moves. Pending on this bill goes from{" "}
+                            No money moves — <b>{formatMoney(ret)}</b> simply comes off this
+                            bill. Pending goes from{" "}
                             <b>{formatMoney(Math.max(0, dueNow))}</b> to{" "}
                             <b>{formatMoney(Math.max(0, r2(dueNow - ret)))}</b>
                             {dueNow - ret < -0.009
@@ -1269,10 +1272,11 @@ export default function InvoicesPage() {
                           }`}
                         >
                           {formatMoney(ret)} leaves the{" "}
-                          {refundMethod === "BANK" ? "bank" : "cash drawer"} and the customer
-                          still owes <b>{formatMoney(Math.max(0, dueNow))}</b> on this bill.
-                          {dueNow > 0.009 &&
-                            " ⚠ This bill is not fully paid — pick this only if you really handed money back; otherwise choose \"No cash paid\" so the return reduces what they owe."}
+                          {refundMethod === "BANK" ? "bank account" : "cash drawer"} and the
+                          bill still comes to{" "}
+                          <b>{formatMoney(Math.max(0, dueNow))}</b> pending, because the goods
+                          coming back and the money going out cancel each other.
+                          {" ⚠ Pick this only if you actually counted money out to the customer; otherwise choose \"No\" so the return reduces the bill."}
                         </p>
                       );
                     })()}
