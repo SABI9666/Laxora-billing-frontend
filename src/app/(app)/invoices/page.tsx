@@ -329,10 +329,16 @@ export default function InvoicesPage() {
   );
   const exchValid = exchLines.filter((l) => l.description && l.quantity > 0);
   const exchGross = exchValid.reduce((s, l) => {
-    const net = exchInclusive ? l.rate / (1 + l.taxRate / 100) : l.rate;
-    return s + l.quantity * net * (1 + l.taxRate / 100);
+    // A product picked but not yet priced would otherwise read as NaN and make
+    // the difference look like an even exchange.
+    const rate = Number(l.rate) || 0;
+    const taxRate = Number(l.taxRate) || 0;
+    const net = exchInclusive ? rate / (1 + taxRate / 100) : rate;
+    return s + l.quantity * net * (1 + taxRate / 100);
   }, 0);
   const exchDiff = r2(exchGross - returnGross);
+  // Products chosen for the exchange that still have no price on them.
+  const exchUnpriced = exchValid.filter((l) => !(Number(l.rate) > 0));
 
   async function submitReturn(e: React.FormEvent) {
     e.preventDefault();
@@ -1118,26 +1124,76 @@ export default function InvoicesPage() {
                       + Another product
                     </button>
 
-                    {/* Live settlement of the exchange difference. */}
-                    <div className="rounded-lg bg-white px-3 py-2 text-sm text-gray-600">
-                      Returning <b>{formatMoney(returnGross)}</b> · taking{" "}
-                      <b>{formatMoney(exchGross)}</b> →{" "}
-                      {exchDiff > 0.009 ? (
-                        <b className="text-rose-600">
-                          customer pays {formatMoney(exchDiff)} extra
-                        </b>
-                      ) : exchDiff < -0.009 ? (
-                        <b className="text-emerald-600">
-                          customer gets back {formatMoney(-exchDiff)}
-                        </b>
-                      ) : (
-                        <b className="text-emerald-600">even exchange</b>
-                      )}
-                    </div>
+                    {/* An exchange only settles the GAP between the goods
+                        coming back and the goods going out — the difference.
+                        Everything else nets off on the same bill. */}
+                    {(() => {
+                      const dueNow = returnInv ? Math.max(0, dueOf(returnInv)) : 0;
+                      const collectedNow =
+                        exchDiff > 0.009 && exchPay !== "NONE"
+                          ? exchPay === "FULL"
+                            ? exchDiff
+                            : Math.min(Math.max(r2(exchPayAmount), 0), exchDiff)
+                          : 0;
+                      const refundedNow =
+                        exchDiff < -0.009 && exchRefund !== "ADJUST" ? -exchDiff : 0;
+                      const newDue = r2(dueNow + exchDiff - collectedNow + refundedNow);
+                      return (
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                          <div className="flex justify-between text-gray-600">
+                            <span>Goods returned</span>
+                            <span className="tabular-nums">− {formatMoney(returnGross)}</span>
+                          </div>
+                          <div className="flex justify-between text-gray-600">
+                            <span>New goods taken</span>
+                            <span className="tabular-nums">+ {formatMoney(exchGross)}</span>
+                          </div>
+                          <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
+                            <span>Difference</span>
+                            {exchUnpriced.length > 0 ? (
+                              <span className="text-amber-700">
+                                enter a rate for {exchUnpriced[0].description}
+                              </span>
+                            ) : exchDiff > 0.009 ? (
+                              <span className="text-rose-600">
+                                customer pays {formatMoney(exchDiff)} more
+                              </span>
+                            ) : exchDiff < -0.009 ? (
+                              <span className="text-emerald-600">
+                                customer is owed {formatMoney(-exchDiff)}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600">
+                                even exchange — nothing to settle
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            className={`mt-1 flex justify-between border-t pt-1 text-xs text-gray-500 ${
+                              exchUnpriced.length > 0 ? "hidden" : ""
+                            }`}
+                          >
+                            <span>Pending on this bill</span>
+                            <span className="tabular-nums">
+                              {formatMoney(dueNow)} →{" "}
+                              <b className={newDue > 0.009 ? "text-rose-600" : "text-emerald-700"}>
+                                {formatMoney(Math.max(0, newDue))}
+                              </b>
+                              {newDue < -0.009
+                                ? ` · ${formatMoney(-newDue)} credit on their ledger`
+                                : ""}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
-                    {exchDiff > 0.009 && (
+                    {/* Costlier replacement: the customer owes the gap. */}
+                    {exchDiff > 0.009 && exchUnpriced.length === 0 && (
                       <div className="space-y-2">
-                        <label className="label">Payment of the extra amount</label>
+                        <label className="label">
+                          Is the customer paying the {formatMoney(exchDiff)} extra now?
+                        </label>
                         <div className="grid grid-cols-3 gap-2">
                           {(["FULL", "PARTIAL", "NONE"] as const).map((opt) => (
                             <button
@@ -1151,10 +1207,10 @@ export default function InvoicesPage() {
                               }`}
                             >
                               {opt === "FULL"
-                                ? "Paid now"
+                                ? "Yes, full"
                                 : opt === "PARTIAL"
-                                ? "Partially paid"
-                                : "Unpaid"}
+                                ? "Part now"
+                                : "No, add to pending"}
                             </button>
                           ))}
                         </div>
@@ -1184,17 +1240,21 @@ export default function InvoicesPage() {
                         )}
                         <p className="text-xs text-gray-400">
                           {exchPay === "NONE"
-                            ? "Nothing collected now — the extra stays pending on this bill and shows in the overdue list."
-                            : `Adds to the shop's ${
+                            ? "Nothing collected now — the extra stays pending on this bill and shows in the ledger as owed."
+                            : `Recorded as money received on this bill and added to the shop's ${
                                 exchPayMethod === "BANK" ? "bank" : "cash"
-                              } balance in the admin cash book. Anything not paid now stays pending on this bill.`}
+                              } balance. Anything not paid now stays pending.`}
                         </p>
                       </div>
                     )}
 
-                    {exchDiff < -0.009 && (
+                    {/* Cheaper replacement: the shop owes the gap. Normally it
+                        just comes off the bill; money leaves only if said so. */}
+                    {exchDiff < -0.009 && exchUnpriced.length === 0 && (
                       <div>
-                        <label className="label">Give back the difference via</label>
+                        <label className="label">
+                          Do you need to give the {formatMoney(-exchDiff)} back?
+                        </label>
                         <select
                           className="input"
                           value={exchRefund}
@@ -1203,23 +1263,27 @@ export default function InvoicesPage() {
                           }
                         >
                           <option value="ADJUST">
-                            Adjust against this bill / customer&apos;s ledger (no cash)
+                            No — take it off this bill / keep as credit (normal)
                           </option>
-                          <option value="CASH">Refund cash from the drawer</option>
-                          <option value="BANK">Refund to bank</option>
+                          <option value="CASH">Yes — cash from the drawer</option>
+                          <option value="BANK">Yes — transfer to their bank</option>
                         </select>
-                        <p className="mt-1 text-xs text-gray-400">
+                        <p className="mt-1 text-xs text-gray-500">
                           {exchRefund === "ADJUST"
-                            ? "No money moves — it stays as a credit on the customer's ledger."
-                            : `The shop's ${
-                                exchRefund === "BANK" ? "bank" : "cash"
-                              } balance in the admin cash book drops by ${formatMoney(-exchDiff)}.`}
+                            ? dueOf(returnInv) > 0.009
+                              ? `No money moves — ${formatMoney(
+                                  -exchDiff
+                                )} comes off what is still pending on this bill.`
+                              : "No money moves — it stays as a credit on the customer's ledger and comes off their next bill."
+                            : `${formatMoney(-exchDiff)} leaves the ${
+                                exchRefund === "BANK" ? "bank account" : "cash drawer"
+                              } and shows in the admin cash book.`}
                         </p>
                         {exchRefund !== "ADJUST" && dueOf(returnInv) > 0.009 && (
                           <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
                             ⚠ This bill still has {formatMoney(dueOf(returnInv))} pending —
-                            only pay back money the customer has actually handed over.
-                            Otherwise use <b>Adjust</b> so it comes off what they owe.
+                            pay back only money the customer actually handed over. Otherwise
+                            choose <b>No</b> so it comes off what they owe.
                           </p>
                         )}
                       </div>
@@ -1368,7 +1432,16 @@ export default function InvoicesPage() {
                 {lines.length > 0 ? "Cancel" : "Close"}
               </button>
               {lines.length > 0 && (
-                <button type="submit" className="btn-primary" disabled={saving}>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={saving || (exch && exchUnpriced.length > 0)}
+                  title={
+                    exch && exchUnpriced.length > 0
+                      ? "Every product taken in exchange needs a rate"
+                      : undefined
+                  }
+                >
                   {saving ? "Processing…" : exch ? "Record Exchange" : "Record Return"}
                 </button>
               )}
