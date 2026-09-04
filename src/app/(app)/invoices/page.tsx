@@ -427,6 +427,38 @@ export default function InvoicesPage() {
   // approval; once approved the stock the return added is removed, the returned
   // quantity is freed (items count as sold again), and any cash refund is
   // reversed.
+  // A return marked "refunded" means cash left the drawer, so the returned
+  // value comes off the bill and the refund is owed again — the due does not
+  // move. When no money actually changed hands the refund has to go, which
+  // drops the due by the returned value.
+  async function cancelRefund(cn: CreditNote) {
+    if (!returnInv) return;
+    if (
+      !confirm(
+        `This return of ${formatMoney(cn.totalAmount)} is recorded as refunded in ${(
+          cn.refundMethod ?? "cash"
+        ).toLowerCase()}.\n\nRemove the refund and adjust the return against the bill instead? The bill's pending amount drops by ${formatMoney(
+          cn.totalAmount
+        )} and the cash book no longer shows this money going out.`
+      )
+    )
+      return;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/invoices/${returnInv.id}/return/${cn.id}/refund`, { method: "DELETE" });
+      setNotice(
+        `Refund removed — the return of ${formatMoney(cn.totalAmount)} is now adjusted against the bill.`
+      );
+      await refreshReturnModal(returnInv.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to remove the refund");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteReturn(cn: CreditNote) {
     if (!returnInv) return;
     if (
@@ -664,6 +696,17 @@ export default function InvoicesPage() {
                           ↩ {formatMoney(returned)} returned
                           {refunded > 0.009 ? ` · ${formatMoney(refunded)} refunded` : ""}
                         </div>
+                      )}
+                      {/* A refund on a bill that is still pending almost always
+                          means the return was adjusted, not paid out in cash. */}
+                      {refunded > 0.009 && due > 0.009 && (
+                        <button
+                          onClick={() => openReturn(inv)}
+                          className="text-xs font-medium text-amber-700 underline decoration-dotted"
+                          title="Open the Return dialog to remove the refund if no cash was handed back"
+                        >
+                          refund keeps the due up — fix
+                        </button>
                       )}
                       {inv.type === "SALE" && profit != null && (
                         <div
@@ -1273,18 +1316,37 @@ export default function InvoicesPage() {
                           {" · "}
                           {cn.refundMethod
                             ? `refunded ${cn.refundMethod.toLowerCase()}`
-                            : "ledger credit"}
+                            : "adjusted against the bill"}
                           {cn.reason ? ` · ${cn.reason}` : ""}
                         </span>
+                        {cn.refundMethod && (
+                          <p className="mt-0.5 text-[11px] text-amber-700">
+                            Money was handed back, so this return does not reduce the pending
+                            amount. If no cash was actually given, remove the refund.
+                          </p>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => deleteReturn(cn)}
-                        disabled={saving}
-                        className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        Request delete
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {cn.refundMethod && (
+                          <button
+                            type="button"
+                            onClick={() => cancelRefund(cn)}
+                            disabled={saving}
+                            className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                            title="No cash was given back — adjust this return against the bill instead"
+                          >
+                            No cash given back
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => deleteReturn(cn)}
+                          disabled={saving}
+                          className="rounded border border-red-300 px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Request delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
