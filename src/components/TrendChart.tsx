@@ -26,6 +26,10 @@ export type TrendPeriod = {
   profit: number;
   saleBills: number;
   purchaseBills: number;
+  // Stock moved between the owner's own shops, valued at item cost. Not part
+  // of sales, purchases or profit — moving your own stock earns nothing.
+  transferIn: number;
+  transferOut: number;
 };
 
 // Series colours are checked for colour-blind separation against each other
@@ -33,7 +37,12 @@ export type TrendPeriod = {
 // carries a direct label and a table view, never colour alone.
 const C = {
   sales: "#2a78d6",
+  // Transferred stock rides on the bar it belongs to, in a lighter step of the
+  // same hue: it reads as part of that bar, not as a rival category, and two
+  // extra hues would crowd a chart that already carries three.
+  transferOut: "#86b6ef",
   purchase: "#eb6834",
+  transferIn: "#f4a077",
   profit: "#1baf7a",
   grid: "#e7e9ee",
   axis: "#94a3b8",
@@ -100,12 +109,20 @@ export default function TrendChart() {
 
   const data = rows ?? [];
   const hasData = data.some((d) => d.sales || d.purchases || d.profit);
+  // Most shops never transfer, and a shop that only receives stock should not
+  // be told about a direction it never sends in. Each direction earns its own
+  // legend key and table column only when it has something to show.
+  const hasOut = data.some((d) => d.transferOut > 0);
+  const hasIn = data.some((d) => d.transferIn > 0);
+  const hasTransfers = hasOut || hasIn;
 
   // Totals strip above the plot.
   const totals = useMemo(() => {
     const sales = data.reduce((s, d) => s + d.sales, 0);
     const purchases = data.reduce((s, d) => s + d.purchases, 0);
     const profit = data.reduce((s, d) => s + d.profit, 0);
+    const transferIn = data.reduce((s, d) => s + d.transferIn, 0);
+    const transferOut = data.reduce((s, d) => s + d.transferOut, 0);
     const best = data.reduce<TrendPeriod | null>(
       (b, d) => (d.sales > (b?.sales ?? -Infinity) ? d : b),
       null
@@ -114,6 +131,8 @@ export default function TrendChart() {
       sales,
       purchases,
       profit,
+      transferIn,
+      transferOut,
       margin: sales > 0 ? (profit / sales) * 100 : 0,
       avgSales: data.length ? sales / data.length : 0,
       best,
@@ -128,7 +147,11 @@ export default function TrendChart() {
   const plotH = H - PAD.top - PAD.bottom;
 
   const scale = useMemo(() => {
-    const vals = data.flatMap((d) => [d.sales, d.purchases, d.profit]);
+    const vals = data.flatMap((d) => [
+      d.sales + d.transferOut,
+      d.purchases + d.transferIn,
+      d.profit,
+    ]);
     const rawMax = Math.max(1, ...vals);
     const rawMin = Math.min(0, ...vals);
     const step = niceStep(rawMax - rawMin, 4);
@@ -168,6 +191,7 @@ export default function TrendChart() {
               ? `Week by week (Mon–Sun), last ${periods} weeks`
               : `Month by month, last ${periods} months`}{" "}
             — all figures in ₹.
+            {hasTransfers ? " Shop-to-shop stock is shown separately, at cost." : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -247,7 +271,9 @@ export default function TrendChart() {
       {view === "chart" && (
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
           <LegendKey color={C.sales} label="Sales" />
+          {hasOut && <LegendKey color={C.transferOut} label="Transferred out" />}
           <LegendKey color={C.purchase} label="Purchase" />
+          {hasIn && <LegendKey color={C.transferIn} label="Transferred in" />}
           <LegendKey color={C.profit} label="Profit" line />
         </div>
       )}
@@ -317,8 +343,26 @@ export default function TrendChart() {
                 const cx = centre(i);
                 return (
                   <g key={`bars-${d.key}`} className="pointer-events-none">
-                    <Column x={cx - barW - 1} w={barW} value={d.sales} y={scale.y} zeroY={zeroY} fill={C.sales} />
-                    <Column x={cx + 1} w={barW} value={d.purchases} y={scale.y} zeroY={zeroY} fill={C.purchase} />
+                    <Bar
+                      x={cx - barW - 1}
+                      w={barW}
+                      y={scale.y}
+                      zeroY={zeroY}
+                      segments={[
+                        { value: d.sales, fill: C.sales },
+                        { value: d.transferOut, fill: C.transferOut },
+                      ]}
+                    />
+                    <Bar
+                      x={cx + 1}
+                      w={barW}
+                      y={scale.y}
+                      zeroY={zeroY}
+                      segments={[
+                        { value: d.purchases, fill: C.purchase },
+                        { value: d.transferIn, fill: C.transferIn },
+                      ]}
+                    />
                   </g>
                 );
               })}
@@ -378,14 +422,28 @@ export default function TrendChart() {
             {/* tooltip */}
             {hover !== null && data[hover] && (
               <div
-                className="pointer-events-none absolute top-2 z-10 w-52 -translate-x-1/2 rounded-xl bg-slate-800 p-3 text-xs text-white shadow-xl"
+                className="pointer-events-none absolute top-2 z-10 w-60 -translate-x-1/2 rounded-xl bg-slate-800 p-3 text-xs text-white shadow-xl"
                 style={{
                   left: `${Math.min(88, Math.max(12, ((centre(hover) / W) * 100)))}%`,
                 }}
               >
                 <p className="mb-2 font-bold">{data[hover].fullLabel}</p>
                 <TipRow color={C.sales} label="Sales" value={formatMoney(data[hover].sales)} />
+                {data[hover].transferOut > 0 && (
+                  <TipRow
+                    color={C.transferOut}
+                    label="Transferred out"
+                    value={formatMoney(data[hover].transferOut)}
+                  />
+                )}
                 <TipRow color={C.purchase} label="Purchase" value={formatMoney(data[hover].purchases)} />
+                {data[hover].transferIn > 0 && (
+                  <TipRow
+                    color={C.transferIn}
+                    label="Transferred in"
+                    value={formatMoney(data[hover].transferIn)}
+                  />
+                )}
                 <TipRow color={C.profit} label="Profit" value={formatMoney(data[hover].profit)} />
                 <p className="mt-2 border-t border-white/15 pt-2 text-[11px] text-slate-300">
                   {data[hover].saleBills} sale bill{data[hover].saleBills === 1 ? "" : "s"} ·{" "}
@@ -407,7 +465,9 @@ export default function TrendChart() {
               <tr>
                 <th className="table-th">{bucket === "week" ? "Week" : "Month"}</th>
                 <th className="table-th text-right">Sales</th>
+                {hasOut && <th className="table-th text-right">Transferred out</th>}
                 <th className="table-th text-right">Purchase</th>
+                {hasIn && <th className="table-th text-right">Transferred in</th>}
                 <th className="table-th text-right">Cost + expenses</th>
                 <th className="table-th text-right">Profit</th>
                 <th className="table-th text-right">Margin</th>
@@ -418,7 +478,17 @@ export default function TrendChart() {
                 <tr key={d.key} className="transition hover:bg-slate-50/60">
                   <td className="table-td font-semibold text-slate-800">{d.fullLabel}</td>
                   <td className="table-td text-right tabular-nums">{formatMoney(d.sales)}</td>
+                  {hasOut && (
+                    <td className="table-td text-right tabular-nums text-slate-500">
+                      {d.transferOut ? formatMoney(d.transferOut) : "—"}
+                    </td>
+                  )}
                   <td className="table-td text-right tabular-nums">{formatMoney(d.purchases)}</td>
+                  {hasIn && (
+                    <td className="table-td text-right tabular-nums text-slate-500">
+                      {d.transferIn ? formatMoney(d.transferIn) : "—"}
+                    </td>
+                  )}
                   <td className="table-td text-right tabular-nums text-slate-500">
                     {formatMoney(d.cogs + d.expenses)}
                   </td>
@@ -441,9 +511,19 @@ export default function TrendChart() {
                 <td className="table-td text-right font-bold tabular-nums">
                   {formatMoney(totals.sales)}
                 </td>
+                {hasOut && (
+                  <td className="table-td text-right font-bold tabular-nums text-slate-500">
+                    {formatMoney(totals.transferOut)}
+                  </td>
+                )}
                 <td className="table-td text-right font-bold tabular-nums">
                   {formatMoney(totals.purchases)}
                 </td>
+                {hasIn && (
+                  <td className="table-td text-right font-bold tabular-nums text-slate-500">
+                    {formatMoney(totals.transferIn)}
+                  </td>
+                )}
                 <td className="table-td text-right tabular-nums text-slate-500">
                   {formatMoney(data.reduce((s, d) => s + d.cogs + d.expenses, 0))}
                 </td>
@@ -466,34 +546,48 @@ export default function TrendChart() {
   );
 }
 
-// A single column: 4px rounded cap at the data end, square where it meets the
-// baseline. Values sit on either side of zero, so the path is drawn explicitly
-// rather than with a plain <rect rx>.
-function Column({
+// One bar, drawn bottom-up from the baseline. A second segment (transferred
+// stock) sits on the first with a 2px gap in the surface colour doing the
+// separating — never a stroke, which would add ink that is not data. Only the
+// topmost segment gets the 4px rounded cap; the rest stay square so the stack
+// reads as a single bar. Everything stacked here is >= 0; the one series that
+// goes negative (profit) is a line, not a bar.
+function Bar({
   x,
   w,
-  value,
   y,
   zeroY,
-  fill,
+  segments,
 }: {
   x: number;
   w: number;
-  value: number;
   y: (v: number) => number;
   zeroY: number;
-  fill: string;
+  segments: { value: number; fill: string }[];
 }) {
-  if (!value) return null;
-  const vy = y(value);
-  const h = Math.abs(vy - zeroY);
-  if (h < 0.5) return null;
-  const r = Math.min(4, w / 2, h);
-  const up = value > 0;
-  const d = up
-    ? `M${x},${zeroY} L${x},${vy + r} Q${x},${vy} ${x + r},${vy} L${x + w - r},${vy} Q${x + w},${vy} ${x + w},${vy + r} L${x + w},${zeroY} Z`
-    : `M${x},${zeroY} L${x},${vy - r} Q${x},${vy} ${x + r},${vy} L${x + w - r},${vy} Q${x + w},${vy} ${x + w},${vy - r} L${x + w},${zeroY} Z`;
-  return <path d={d} fill={fill} />;
+  const parts = segments.filter((s) => s.value > 0);
+  if (parts.length === 0) return null;
+
+  let base = 0;
+  return (
+    <>
+      {parts.map((part, idx) => {
+        const bottomValue = base;
+        base += part.value;
+        const topY = y(base);
+        // Leave the gap above the segment below, so the bar's foot still sits
+        // exactly on the baseline.
+        const botY = idx > 0 ? y(bottomValue) - 2 : zeroY;
+        const h = botY - topY;
+        if (h < 0.5) return null;
+        const r = idx === parts.length - 1 ? Math.min(4, w / 2, h) : 0;
+        const d = `M${x},${botY} L${x},${topY + r} Q${x},${topY} ${x + r},${topY} L${
+          x + w - r
+        },${topY} Q${x + w},${topY} ${x + w},${topY + r} L${x + w},${botY} Z`;
+        return <path key={idx} d={d} fill={part.fill} />;
+      })}
+    </>
+  );
 }
 
 function LegendKey({ color, label, line }: { color: string; label: string; line?: boolean }) {
