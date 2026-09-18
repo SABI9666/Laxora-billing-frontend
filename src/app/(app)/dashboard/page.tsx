@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import WorkClock from "@/components/WorkClock";
-import MonthlyTrendChart from "@/components/MonthlyTrendChart";
+import TrendChart from "@/components/TrendChart";
 
 type Activity = {
   productsAdded: number;
@@ -323,8 +323,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* ===== Monthly trend: sales vs purchase vs profit ===== */}
-      <MonthlyTrendChart />
+      {/* ===== Trend: sales vs purchase vs profit, by week or month ===== */}
+      <TrendChart />
 
       {/* ===== Chart + Daily activity ===== */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">

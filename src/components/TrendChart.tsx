@@ -4,17 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 
-// Monthly business trend — sales, purchases and profit side by side.
+// Business trend — sales, purchases and profit side by side, by week or month.
 //
 // Everything is plotted in rupees on ONE axis: sales and purchases as grouped
 // columns, profit as a line on top. A second y-scale would let the same pixel
 // height mean two different amounts, so the three series share a scale and the
 // reader can compare heights directly.
 
-export type TrendMonth = {
-  month: string; // "2026-09"
-  label: string; // "Sep"
-  fullLabel: string; // "Sep 2026"
+export type Bucket = "week" | "month";
+
+export type TrendPeriod = {
+  key: string; // "2026-09" for a month, the Monday's date for a week
+  label: string; // "Sep" · "6 Oct"
+  fullLabel: string; // "Sep 2026" · "6–12 Oct 2026"
   sales: number;
   purchases: number;
   netRevenue: number;
@@ -58,19 +60,43 @@ function niceStep(range: number, targetTicks: number): number {
   return step * mag;
 }
 
-export default function MonthlyTrendChart() {
-  const [rows, setRows] = useState<TrendMonth[] | null>(null);
-  const [months, setMonths] = useState(12);
+// How far back each bucket can look. The first entry is the default.
+const RANGES: Record<Bucket, { periods: number; label: string }[]> = {
+  week: [
+    { periods: 12, label: "12 weeks" },
+    { periods: 26, label: "26 weeks" },
+  ],
+  month: [
+    { periods: 12, label: "12 months" },
+    { periods: 6, label: "6 months" },
+  ],
+};
+
+export default function TrendChart() {
+  const [rows, setRows] = useState<TrendPeriod[] | null>(null);
+  const [bucket, setBucket] = useState<Bucket>("month");
+  const [periods, setPeriods] = useState(RANGES.month[0].periods);
   const [view, setView] = useState<"chart" | "table">("chart");
   const [hover, setHover] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
 
+  // Weeks and months have different ranges, so switching bucket resets the
+  // range to that bucket's default rather than carrying over a stale count.
+  function switchBucket(next: Bucket) {
+    setBucket(next);
+    setPeriods(RANGES[next][0].periods);
+    setHover(null);
+  }
+
+  const unit = bucket === "week" ? "week" : "month";
+
   useEffect(() => {
     setFailed(false);
-    api<{ trend: TrendMonth[] }>(`/api/dashboard/monthly-trend?months=${months}`)
+    setRows(null);
+    api<{ trend: TrendPeriod[] }>(`/api/dashboard/trend?bucket=${bucket}&periods=${periods}`)
       .then((r) => setRows(r.trend))
       .catch(() => setFailed(true));
-  }, [months]);
+  }, [bucket, periods]);
 
   const data = rows ?? [];
   const hasData = data.some((d) => d.sales || d.purchases || d.profit);
@@ -80,7 +106,7 @@ export default function MonthlyTrendChart() {
     const sales = data.reduce((s, d) => s + d.sales, 0);
     const purchases = data.reduce((s, d) => s + d.purchases, 0);
     const profit = data.reduce((s, d) => s + d.profit, 0);
-    const best = data.reduce<TrendMonth | null>(
+    const best = data.reduce<TrendPeriod | null>(
       (b, d) => (d.sales > (b?.sales ?? -Infinity) ? d : b),
       null
     );
@@ -124,6 +150,13 @@ export default function MonthlyTrendChart() {
   const profitPoints = data.map((d, i) => `${centre(i)},${scale.y(d.profit)}`).join(" ");
   const last = data.length - 1;
 
+  // 26 weekly labels ("23 Mar") do not fit side by side, so show every Nth and
+  // let the tooltip name the rest. Counting back from the newest period keeps
+  // the current one — the one in bold — always labelled.
+  const labelWidth = bucket === "week" ? 46 : 26;
+  const labelStep = Math.max(1, Math.ceil(labelWidth / band));
+  const showLabel = (i: number) => (last - i) % labelStep === 0;
+
   return (
     <div className="card">
       {/* ---- header: title, range + view controls ---- */}
@@ -131,20 +164,44 @@ export default function MonthlyTrendChart() {
         <div>
           <h2 className="font-bold text-slate-800">Sales · Purchase · Profit</h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            Month by month, last {months} months — all figures in ₹.
+            {bucket === "week"
+              ? `Week by week (Mon–Sun), last ${periods} weeks`
+              : `Month by month, last ${periods} months`}{" "}
+            — all figures in ₹.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 rounded-full bg-slate-100 p-0.5">
-            {[6, 12].map((m) => (
+            {(
+              [
+                ["week", "Weekly"],
+                ["month", "Monthly"],
+              ] as const
+            ).map(([b, label]) => (
               <button
-                key={m}
-                onClick={() => setMonths(m)}
+                key={b}
+                onClick={() => switchBucket(b)}
                 className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                  months === m ? "bg-white text-slate-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  bucket === b ? "bg-white text-slate-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
                 }`}
               >
-                {m}M
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 rounded-full bg-slate-100 p-0.5">
+            {RANGES[bucket].map((r) => (
+              <button
+                key={r.periods}
+                onClick={() => setPeriods(r.periods)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  periods === r.periods
+                    ? "bg-white text-slate-700 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {r.periods}
+                {bucket === "week" ? "W" : "M"}
               </button>
             ))}
           </div>
@@ -182,7 +239,7 @@ export default function MonthlyTrendChart() {
         <Total
           label="Profit margin"
           value={`${totals.margin.toFixed(1)}%`}
-          hint={totals.best ? `best month ${totals.best.fullLabel}` : undefined}
+          hint={totals.best ? `best ${unit} ${totals.best.fullLabel}` : undefined}
         />
       </div>
 
@@ -207,7 +264,7 @@ export default function MonthlyTrendChart() {
 
       {!failed && rows !== null && !hasData && (
         <p className="py-16 text-center text-sm text-slate-400">
-          No billing activity in the last {months} months yet.
+          No billing activity in the last {periods} {unit}s yet.
         </p>
       )}
 
@@ -216,7 +273,7 @@ export default function MonthlyTrendChart() {
         <div className="overflow-x-auto">
           <div className="relative min-w-[620px]">
             <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img"
-                 aria-label={`Monthly sales, purchase and profit for the last ${months} months`}>
+                 aria-label={`Sales, purchase and profit by ${unit} for the last ${periods} ${unit}s`}>
               {/* gridlines + y ticks */}
               {scale.ticks.map((t) => (
                 <g key={t}>
@@ -243,7 +300,7 @@ export default function MonthlyTrendChart() {
               {/* month bands — the hover target is the whole column, not the bar */}
               {data.map((d, i) => (
                 <rect
-                  key={`band-${d.month}`}
+                  key={`band-${d.key}`}
                   x={PAD.left + band * i}
                   y={PAD.top}
                   width={band}
@@ -259,7 +316,7 @@ export default function MonthlyTrendChart() {
               {data.map((d, i) => {
                 const cx = centre(i);
                 return (
-                  <g key={`bars-${d.month}`} className="pointer-events-none">
+                  <g key={`bars-${d.key}`} className="pointer-events-none">
                     <Column x={cx - barW - 1} w={barW} value={d.sales} y={scale.y} zeroY={zeroY} fill={C.sales} />
                     <Column x={cx + 1} w={barW} value={d.purchases} y={scale.y} zeroY={zeroY} fill={C.purchase} />
                   </g>
@@ -278,7 +335,7 @@ export default function MonthlyTrendChart() {
               />
               {data.map((d, i) => (
                 <circle
-                  key={`pt-${d.month}`}
+                  key={`pt-${d.key}`}
                   cx={centre(i)}
                   cy={scale.y(d.profit)}
                   r={hover === i ? 5.5 : 4}
@@ -302,18 +359,20 @@ export default function MonthlyTrendChart() {
               )}
 
               {/* x labels */}
-              {data.map((d, i) => (
-                <text
-                  key={`x-${d.month}`}
-                  x={centre(i)}
-                  y={H - 12}
-                  textAnchor="middle"
-                  className={hover === i || i === last ? "fill-slate-700" : "fill-slate-400"}
-                  style={{ fontSize: 11, fontWeight: hover === i || i === last ? 700 : 400 }}
-                >
-                  {d.label}
-                </text>
-              ))}
+              {data.map((d, i) =>
+                showLabel(i) || hover === i ? (
+                  <text
+                    key={`x-${d.key}`}
+                    x={centre(i)}
+                    y={H - 12}
+                    textAnchor="middle"
+                    className={hover === i || i === last ? "fill-slate-700" : "fill-slate-400"}
+                    style={{ fontSize: 11, fontWeight: hover === i || i === last ? 700 : 400 }}
+                  >
+                    {d.label}
+                  </text>
+                ) : null
+              )}
             </svg>
 
             {/* tooltip */}
@@ -346,7 +405,7 @@ export default function MonthlyTrendChart() {
           <table className="w-full">
             <thead className="bg-slate-50">
               <tr>
-                <th className="table-th">Month</th>
+                <th className="table-th">{bucket === "week" ? "Week" : "Month"}</th>
                 <th className="table-th text-right">Sales</th>
                 <th className="table-th text-right">Purchase</th>
                 <th className="table-th text-right">Cost + expenses</th>
@@ -356,7 +415,7 @@ export default function MonthlyTrendChart() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {[...data].reverse().map((d) => (
-                <tr key={d.month} className="transition hover:bg-slate-50/60">
+                <tr key={d.key} className="transition hover:bg-slate-50/60">
                   <td className="table-td font-semibold text-slate-800">{d.fullLabel}</td>
                   <td className="table-td text-right tabular-nums">{formatMoney(d.sales)}</td>
                   <td className="table-td text-right tabular-nums">{formatMoney(d.purchases)}</td>
