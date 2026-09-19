@@ -38,6 +38,8 @@ type Item = {
   lowStockAlert: string;
   isService: boolean;
   description?: string | null;
+  specification?: string | null;
+  warranty?: string | null;
   imageUrl?: string | null;
   imageUrl2?: string | null;
   imageUrl3?: string | null;
@@ -65,6 +67,8 @@ const empty = {
   isService: false,
   reason: "",
   description: "",
+  specification: "",
+  warranty: "",
   imageUrl: "",
   imageUrl2: "",
   imageUrl3: "",
@@ -152,6 +156,8 @@ export default function ItemsPage() {
       wattage: it.wattage || "",
       hsn: it.hsn || "",
       description: it.description || "",
+      specification: it.specification || "",
+      warranty: it.warranty || "",
       imageUrl: it.imageUrl || "",
       imageUrl2: it.imageUrl2 || "",
       imageUrl3: it.imageUrl3 || "",
@@ -201,6 +207,8 @@ export default function ItemsPage() {
         categoryId: form.categoryId || null,
         supplierId: form.supplierId || null,
         description: form.description || null,
+        specification: form.specification || null,
+        warranty: form.warranty || null,
         imageUrl: form.imageUrl || null,
         imageUrl2: form.imageUrl2 || null,
         imageUrl3: form.imageUrl3 || null,
@@ -448,22 +456,78 @@ export default function ItemsPage() {
               </div>
             </div>
 
-            <div>
-              <label className="label">Description (shown on website)</label>
-              <textarea
-                className="input"
-                rows={2}
-                value={form.description}
-                onChange={set("description")}
-              />
-            </div>
+            {/* Everything the customer reads on the website, kept together so
+                it is obvious which fields are shop-facing and which are not. */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <div className="mb-3 flex items-baseline justify-between">
+                <h3 className="text-sm font-bold text-slate-700">Website listing</h3>
+                <span className="text-xs text-slate-400">
+                  What customers see on Laxorashopping
+                </span>
+              </div>
 
-            <div>
-              <label className="label">Product Images</label>
-              <div className="grid grid-cols-3 gap-3">
-                <ImageField value={form.imageUrl} onChange={(v) => setForm({ ...form, imageUrl: v })} />
-                <ImageField value={form.imageUrl2} onChange={(v) => setForm({ ...form, imageUrl2: v })} />
-                <ImageField value={form.imageUrl3} onChange={(v) => setForm({ ...form, imageUrl3: v })} />
+              <div className="space-y-4">
+                <div>
+                  <label className="label">Description</label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    placeholder="A couple of lines about the product — what it is, where it is used, what makes it worth buying."
+                    value={form.description}
+                    onChange={set("description")}
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Shown under the price. {form.description.trim().length} characters
+                    {form.description.trim().length > 0 && form.description.trim().length < 40
+                      ? " — a little more detail reads better online."
+                      : ""}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="label">Specifications</label>
+                  <textarea
+                    className="input font-mono text-[13px]"
+                    rows={4}
+                    placeholder={"Material: Aluminium\nBeam angle: 120°\nColour temperature: 3000K warm white\nIP rating: IP65"}
+                    value={form.specification}
+                    onChange={set("specification")}
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    One per line as <span className="font-semibold">Label: Value</span> — the
+                    website turns these into a neat specification table. Brand, model, product
+                    code and category are added automatically, so no need to repeat them.
+                  </p>
+                  <SpecPreview value={form.specification} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Warranty</label>
+                    <input
+                      className="input"
+                      placeholder="e.g. 2 years, 6 months, No warranty"
+                      value={form.warranty}
+                      onChange={set("warranty")}
+                    />
+                    <p className="mt-1 text-xs text-slate-400">
+                      Left blank, the website simply leaves warranty out.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">Discount shown online</label>
+                    <DiscountPreview mrp={Number(form.mrp)} price={Number(form.salePrice)} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label">Product Images</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <ImageField value={form.imageUrl} onChange={(v) => setForm({ ...form, imageUrl: v })} />
+                    <ImageField value={form.imageUrl2} onChange={(v) => setForm({ ...form, imageUrl2: v })} />
+                    <ImageField value={form.imageUrl3} onChange={(v) => setForm({ ...form, imageUrl3: v })} />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -615,6 +679,65 @@ export default function ItemsPage() {
           </form>
         </Modal>
       )}
+    </div>
+  );
+}
+
+
+// Shows the shop owner the spec table the website will build from what they
+// typed, so a mistyped line is obvious before saving rather than after.
+function SpecPreview({ value }: { value: string }) {
+  const rows = parseSpecLines(value);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <p className="border-b border-slate-100 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        Preview on the website
+      </p>
+      <dl className="divide-y divide-slate-100">
+        {rows.map((r, i) => (
+          <div key={i} className="flex gap-3 px-3 py-1.5 text-sm">
+            <dt className="w-40 shrink-0 text-slate-500">{r.label}</dt>
+            <dd className="font-medium text-slate-800">{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+// "Label: Value" per line. A line with no colon is kept as a plain point, so
+// nothing a shop owner types is silently thrown away.
+function parseSpecLines(value: string): { label: string; value: string }[] {
+  return (value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const at = line.indexOf(":");
+      if (at <= 0) return { label: "", value: line };
+      return { label: line.slice(0, at).trim(), value: line.slice(at + 1).trim() };
+    })
+    .filter((r) => r.label || r.value);
+}
+
+// The discount the customer will see is the gap between M.R.P. and sale price
+// — easy to get wrong silently, so it is spelled out while editing.
+function DiscountPreview({ mrp, price }: { mrp: number; price: number }) {
+  if (!mrp || mrp <= price) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400">
+        No discount badge — set an M.R.P. above the sale price to show one.
+      </div>
+    );
+  }
+  const pct = Math.round((1 - price / mrp) * 100);
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+      <span className="font-bold text-emerald-700">{pct}% OFF</span>
+      <span className="ml-2 text-slate-500">
+        <span className="line-through">{formatMoney(mrp)}</span> → {formatMoney(price)}
+      </span>
     </div>
   );
 }
