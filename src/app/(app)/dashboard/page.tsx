@@ -30,8 +30,17 @@ type WeekDay = {
 type PeriodFigures = {
   sales: number;
   bills: number;
+  // P&L lines (ex-GST). Older API builds may not send the breakdown.
+  grossSales?: number;
+  returns?: number;
   netRevenue: number;
+  serviceIncome?: number;
   cogs: number;
+  grossProfit?: number;
+  commission?: number;
+  billCharges?: number;
+  shopExpenses?: number;
+  shopExpensesByCategory?: { category: string; amount: number }[];
   expenses: number;
   profit: number;
 };
@@ -40,6 +49,8 @@ type Overview = {
   today: PeriodFigures;
   month: PeriodFigures;
   prev?: PeriodFigures;
+  // Profit in the period's bills still waiting on customer payments.
+  unrealised?: { amount: number; bills: number };
   pending: {
     toReceive: number;
     receivableBills: number;
@@ -297,8 +308,9 @@ export default function DashboardPage() {
           valueClass={monthProfitUp ? "text-emerald-600" : "text-rose-600"}
           sub={
             ov
-              ? profitCompare ||
-                `after ${formatMoney(ov.month.cogs)} cost · ${formatMoney(ov.month.expenses)} expenses`
+              ? `gross ${formatMoney(ov.month.grossProfit ?? ov.month.netRevenue - ov.month.cogs)} − expenses ${formatMoney(
+                  ov.month.expenses
+                )}${profitCompare ? ` · ${profitCompare}` : ""}`
               : ""
           }
           trend={ov ? (monthProfitUp ? "up" : "down") : undefined}
@@ -322,6 +334,9 @@ export default function DashboardPage() {
           href="/ledgers"
         />
       </div>
+
+      {/* ===== Profit & Loss statement for the selected period ===== */}
+      {ov && <ProfitLoss f={ov.month} prev={ov.prev} unrealised={ov.unrealised} periodLabel={periodLabel} />}
 
       {/* ===== Trend: sales vs purchase vs profit, by week or month ===== */}
       <TrendChart />
@@ -504,6 +519,179 @@ export default function DashboardPage() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The period's P&L read top to bottom, the way an accountant lays it out.
+function ProfitLoss({
+  f,
+  prev,
+  unrealised,
+  periodLabel,
+}: {
+  f: PeriodFigures;
+  prev?: PeriodFigures;
+  unrealised?: { amount: number; bills: number };
+  periodLabel: string;
+}) {
+  const grossSales = f.grossSales ?? f.netRevenue;
+  const returns = f.returns ?? 0;
+  const grossProfit = f.grossProfit ?? f.netRevenue - f.cogs;
+  const service = f.serviceIncome ?? 0;
+  const commission = f.commission ?? 0;
+  const billCharges = f.billCharges ?? 0;
+  const shop = f.shopExpenses ?? f.expenses - commission - billCharges;
+  const cats = f.shopExpensesByCategory ?? [];
+  const pct = (n: number) => (f.netRevenue > 0.009 ? `${((n / f.netRevenue) * 100).toFixed(1)}%` : "");
+  const signed = (n: number) => (n < -0.009 ? `(${formatMoney(-n)})` : formatMoney(n));
+  const loss = f.profit < -0.009;
+  const pending = unrealised?.amount ?? 0;
+  const realised = f.profit - pending;
+
+  const Row = ({
+    label,
+    value,
+    sign,
+    note,
+    strong,
+    sub,
+    cls = "",
+  }: {
+    label: string;
+    value: number;
+    sign?: "+" | "−";
+    note?: string;
+    strong?: boolean;
+    sub?: boolean;
+    cls?: string;
+  }) => (
+    <div
+      className={`flex items-baseline justify-between gap-3 py-1 ${
+        strong ? "border-t border-slate-200 pt-1.5 font-semibold text-slate-900" : "text-slate-600"
+      } ${sub ? "pl-5 text-xs text-slate-400" : "text-sm"}`}
+    >
+      <span>
+        {label}
+        {note && <span className="ml-1.5 text-xs font-normal text-slate-400">{note}</span>}
+      </span>
+      <span className={`whitespace-nowrap tabular-nums ${cls}`}>
+        {sign ? `${sign} ` : ""}
+        {sign ? formatMoney(Math.abs(value)) : signed(value)}
+      </span>
+    </div>
+  );
+
+  return (
+    <div className="card">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h2 className="text-base font-bold text-slate-900">Profit &amp; Loss · {periodLabel}</h2>
+          <p className="text-xs text-slate-400">
+            All figures ex-GST. Returns, commission and every expense are already deducted.
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-sm font-bold ${
+            loss ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"
+          }`}
+        >
+          {loss ? "▼ Net loss" : "▲ Net profit"} {formatMoney(Math.abs(f.profit))}
+        </span>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <Row label="Sales" note={`${f.bills} bills`} value={grossSales} />
+          {returns > 0.009 && <Row label="Sales returns" value={returns} sign="−" />}
+          <Row label="Net sales" value={f.netRevenue} strong />
+          <Row label="Cost of goods sold" value={f.cogs} sign="−" />
+          <Row
+            label="Gross profit"
+            note={pct(grossProfit)}
+            value={grossProfit}
+            strong
+            cls={grossProfit < 0 ? "text-rose-600" : "text-emerald-700"}
+          />
+          {service > 0.009 && <Row label="Service / other income" value={service} sign="+" />}
+          <Row label="Commission" note="paid out of collections" value={commission} sign="−" />
+          {billCharges > 0.009 && (
+            <Row label="Other bill expenses" note="transport, damage, …" value={billCharges} sign="−" />
+          )}
+          <Row label="Shop expenses" note="rent, salary, …" value={shop} sign="−" />
+          {cats.map((c) => (
+            <Row key={c.category} label={c.category} value={c.amount} sub />
+          ))}
+          <div
+            className={`mt-1 flex items-baseline justify-between border-t-2 border-slate-800 pt-2 text-base font-extrabold ${
+              loss ? "text-rose-600" : "text-emerald-700"
+            }`}
+          >
+            <span>{loss ? "Net loss" : "Net profit"}</span>
+            <span className="tabular-nums">
+              {signed(f.profit)}
+              {pct(f.profit) && (
+                <span className="ml-2 text-xs font-semibold text-slate-400">{pct(f.profit)} of sales</span>
+              )}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="rounded-xl bg-slate-50 p-3">
+            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">
+              Collected vs still pending
+            </p>
+            <Row label="Net profit / (loss) for the period" value={f.profit} />
+            <Row
+              label="Profit still in unpaid bills"
+              note={unrealised ? `${unrealised.bills} bills` : undefined}
+              value={pending}
+              sign="−"
+            />
+            <Row
+              label="Profit realised on money collected"
+              value={realised}
+              strong
+              cls={realised < -0.009 ? "text-rose-600" : "text-emerald-700"}
+            />
+            <p className="mt-1 text-[11px] text-slate-400">
+              Each bill earns its profit as it is paid — the same rule the invoice list and the
+              customer ledger use per bill. Shop expenses are counted in full.
+            </p>
+          </div>
+          {prev && (
+            <div className="rounded-xl bg-slate-50 p-3 text-sm">
+              <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">
+                Compared with the previous period
+              </p>
+              <Row label="Net sales" value={prev.netRevenue} />
+              <Row label="Gross profit" value={prev.grossProfit ?? prev.netRevenue - prev.cogs} />
+              <Row label="Expenses" value={prev.expenses} />
+              <Row
+                label={prev.profit < 0 ? "Net loss" : "Net profit"}
+                value={prev.profit}
+                strong
+                cls={prev.profit < 0 ? "text-rose-600" : "text-emerald-700"}
+              />
+            </div>
+          )}
+          {loss && (
+            <p className="rounded-xl bg-rose-50 p-3 text-xs text-rose-700">
+              Why a loss: gross profit of {formatMoney(grossProfit)} did not cover{" "}
+              {formatMoney(f.expenses)} in commission and expenses (
+              {[
+                commission > 0.009 && `commission ${formatMoney(commission)}`,
+                billCharges > 0.009 && `bill expenses ${formatMoney(billCharges)}`,
+                shop > 0.009 && `shop expenses ${formatMoney(shop)}`,
+              ]
+                .filter(Boolean)
+                .join(", ")}
+              ).
+            </p>
+          )}
         </div>
       </div>
     </div>
