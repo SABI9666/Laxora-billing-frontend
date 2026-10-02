@@ -45,6 +45,10 @@ const SETTLEMENTS: { value: Settlement; label: string; hint: string }[] = [
     hint: "Cash or bank paid to a third party — e.g. a transporter. The bill is not reduced; it is the shop's cost only.",
   },
 ];
+// Commission is always given out of the money already collected: no question
+// about how it was settled, only whether it went in cash or via bank.
+const isCommission = (category: string) => /commission/i.test(category);
+
 const settlementLabel = (x: Expense) =>
   x.settlement === "ADJUST"
     ? "Adjusted"
@@ -138,6 +142,10 @@ export default function ExpensesPage() {
     setOpen(true);
   }
 
+  // The settlement that will actually be saved for this form.
+  const commission = isCommission(form.category);
+  const settlement: Settlement = commission ? "PAID_TO_PARTY" : form.settlement;
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -154,8 +162,8 @@ export default function ExpensesPage() {
           invoiceId: form.invoiceId || undefined,
           // A deduction moves no cash, so no method goes with it.
           method:
-            form.invoiceId && form.settlement === "ADJUST" ? undefined : form.method || undefined,
-          settlement: form.invoiceId ? form.settlement : undefined,
+            form.invoiceId && settlement === "ADJUST" ? undefined : form.method || undefined,
+          settlement: form.invoiceId ? settlement : undefined,
           // Omitted only if the field was cleared — the server then stamps now.
           date: fromLocalInput(form.date),
         },
@@ -306,7 +314,15 @@ export default function ExpensesPage() {
               </select>
             </div>
 
-            {form.invoiceId && (
+            {form.invoiceId && commission && (
+              <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Commission is paid out of the amount collected on this bill. The bill and the
+                party&apos;s balance stay as they are; the commission is deducted from the
+                bill&apos;s profit.
+              </div>
+            )}
+
+            {form.invoiceId && !commission && (
               <div>
                 <label className="label">What happened to the money?</label>
                 <div className="space-y-1.5">
@@ -375,7 +391,7 @@ export default function ExpensesPage() {
               </div>
               <div>
                 <label className="label">Paid via</label>
-                {form.invoiceId && form.settlement === "ADJUST" ? (
+                {form.invoiceId && settlement === "ADJUST" ? (
                   <>
                     <div className="input bg-slate-50 text-gray-500">No cash moves</div>
                     <p className="mt-1 text-xs text-gray-400">

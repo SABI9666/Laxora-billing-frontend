@@ -9,7 +9,9 @@ import ShareMenu from "@/components/ShareMenu";
 import LedgerItems, {
   LedgerBills,
   LedgerKind,
+  LedgerProfitSummary,
   type LedgerBill,
+  type LedgerProfit,
   type LedgerItem,
 } from "@/components/LedgerItems";
 
@@ -26,6 +28,8 @@ type Ledger = {
   closingBalance: number;
   // Where each bill stands after additions, returns, refunds and receipts.
   bills?: LedgerBill[];
+  // Profit per sale bill after commission and charges (customers only).
+  profit?: LedgerProfit | null;
   // Reconciliation footer — the same figures the party list is built from.
   totals?: {
     billed: number;
@@ -268,6 +272,7 @@ export default function LedgersPage() {
               {ledger.bills && ledger.bills.length > 0 && (
                 <div className="border-t px-5 pb-3">
                   <LedgerBills bills={ledger.bills} isCustomer={isCustomer} compact />
+                  <LedgerProfitSummary profit={ledger.profit} />
                 </div>
               )}
               {ledger.totals && (
@@ -306,9 +311,21 @@ export default function LedgersPage() {
                     </span>
                   )}
                   {ledger.totals.chargesGiven > 0 && (
-                    <span title="Commission / charges given to this party out of the bill value — not a receipt">
-                      Commission given{" "}
+                    <span title="Commission given out of the amount collected — the shop's expense, deducted from profit">
+                      Commission paid{" "}
                       <b className="text-slate-800">{formatMoney(ledger.totals.chargesGiven)}</b>
+                    </span>
+                  )}
+                  {ledger.profit && (
+                    <span title="Sales less returns (ex-GST) − cost of goods − commission and charges">
+                      Net profit{" "}
+                      <b
+                        className={
+                          ledger.profit.totals.netProfit < 0 ? "text-red-600" : "text-green-700"
+                        }
+                      >
+                        {formatMoney(ledger.profit.totals.netProfit)}
+                      </b>
                     </span>
                   )}
                 </div>
