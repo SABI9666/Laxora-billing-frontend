@@ -42,6 +42,13 @@ type PeriodFigures = {
   shopExpenses?: number;
   shopExpensesByCategory?: { category: string; amount: number }[];
   expenses: number;
+  // Money settled on sale bills in the period (incl. GST).
+  collected?: { received: number; refunded: number; adjusted: number; settled: number };
+  // Profit carried by that money, ex-GST.
+  profitOnCollections?: number;
+  // What net profit would be if every bill raised were already paid.
+  billedProfit?: number;
+  // Net profit on money collected: profitOnCollections + service − expenses.
   profit: number;
 };
 
@@ -303,14 +310,18 @@ export default function DashboardPage() {
         <KpiCard
           icon={monthProfitUp ? "💹" : "📉"}
           iconBg={monthProfitUp ? "bg-emerald-50" : "bg-rose-50"}
-          label={monthProfitUp ? `Net Profit · ${periodLabel}` : `Net Loss · ${periodLabel}`}
+          label={
+            monthProfitUp
+              ? `Net Profit (collected) · ${periodLabel}`
+              : `Net Loss (collected) · ${periodLabel}`
+          }
           value={ov ? formatMoney(Math.abs(ov.month.profit)) : "—"}
           valueClass={monthProfitUp ? "text-emerald-600" : "text-rose-600"}
           sub={
             ov
-              ? `gross ${formatMoney(ov.month.grossProfit ?? ov.month.netRevenue - ov.month.cogs)} − expenses ${formatMoney(
+              ? `on ${formatMoney(ov.month.collected?.settled ?? 0)} collected − ${formatMoney(
                   ov.month.expenses
-                )}${profitCompare ? ` · ${profitCompare}` : ""}`
+                )} expenses${profitCompare ? ` · ${profitCompare}` : ""}`
               : ""
           }
           trend={ov ? (monthProfitUp ? "up" : "down") : undefined}
@@ -525,7 +536,9 @@ export default function DashboardPage() {
   );
 }
 
-// The period's P&L read top to bottom, the way an accountant lays it out.
+// The period's P&L on money actually collected, read top to bottom. A bill
+// earns its profit only as it is paid, so a month's profit is exactly what the
+// money that came in that month carried, less what went out.
 function ProfitLoss({
   f,
   prev,
@@ -537,19 +550,18 @@ function ProfitLoss({
   unrealised?: { amount: number; bills: number };
   periodLabel: string;
 }) {
-  const grossSales = f.grossSales ?? f.netRevenue;
-  const returns = f.returns ?? 0;
-  const grossProfit = f.grossProfit ?? f.netRevenue - f.cogs;
+  const col = f.collected ?? { received: 0, refunded: 0, adjusted: 0, settled: 0 };
+  const earned = f.profitOnCollections ?? 0;
+  const costInCollected = col.settled - earned;
   const service = f.serviceIncome ?? 0;
   const commission = f.commission ?? 0;
   const billCharges = f.billCharges ?? 0;
   const shop = f.shopExpenses ?? f.expenses - commission - billCharges;
   const cats = f.shopExpensesByCategory ?? [];
-  const pct = (n: number) => (f.netRevenue > 0.009 ? `${((n / f.netRevenue) * 100).toFixed(1)}%` : "");
+  const grossProfit = f.grossProfit ?? f.netRevenue - f.cogs;
+  const pct = (n: number, of: number) => (of > 0.009 ? `${((n / of) * 100).toFixed(1)}%` : "");
   const signed = (n: number) => (n < -0.009 ? `(${formatMoney(-n)})` : formatMoney(n));
   const loss = f.profit < -0.009;
-  const pending = unrealised?.amount ?? 0;
-  const realised = f.profit - pending;
 
   const Row = ({
     label,
@@ -588,9 +600,13 @@ function ProfitLoss({
     <div className="card">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h2 className="text-base font-bold text-slate-900">Profit &amp; Loss · {periodLabel}</h2>
+          <h2 className="text-base font-bold text-slate-900">
+            Profit &amp; Loss · {periodLabel}
+            <span className="ml-2 text-xs font-semibold text-slate-400">on money collected</span>
+          </h2>
           <p className="text-xs text-slate-400">
-            All figures ex-GST. Returns, commission and every expense are already deducted.
+            Only money actually received in this period counts. A bill earns its profit as it is
+            paid; unpaid sales add nothing until they are collected.
           </p>
         </div>
         <span
@@ -604,16 +620,23 @@ function ProfitLoss({
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
-          <Row label="Sales" note={`${f.bills} bills`} value={grossSales} />
-          {returns > 0.009 && <Row label="Sales returns" value={returns} sign="−" />}
-          <Row label="Net sales" value={f.netRevenue} strong />
-          <Row label="Cost of goods sold" value={f.cogs} sign="−" />
+          <Row label="Collected from customers" note="incl. GST" value={col.received} />
+          {col.refunded > 0.009 && <Row label="Refunds paid back" value={col.refunded} sign="−" />}
+          {col.adjusted > 0.009 && (
+            <Row label="Settled by bill adjustments" value={col.adjusted} sign="+" />
+          )}
+          <Row label="Net collected" value={col.settled} strong />
           <Row
-            label="Gross profit"
-            note={pct(grossProfit)}
-            value={grossProfit}
+            label="Cost of goods & GST in it"
+            value={costInCollected}
+            sign="−"
+          />
+          <Row
+            label="Profit earned on collections"
+            note={pct(earned, col.settled)}
+            value={earned}
             strong
-            cls={grossProfit < 0 ? "text-rose-600" : "text-emerald-700"}
+            cls={earned < 0 ? "text-rose-600" : "text-emerald-700"}
           />
           {service > 0.009 && <Row label="Service / other income" value={service} sign="+" />}
           <Row label="Commission" note="paid out of collections" value={commission} sign="−" />
@@ -632,8 +655,10 @@ function ProfitLoss({
             <span>{loss ? "Net loss" : "Net profit"}</span>
             <span className="tabular-nums">
               {signed(f.profit)}
-              {pct(f.profit) && (
-                <span className="ml-2 text-xs font-semibold text-slate-400">{pct(f.profit)} of sales</span>
+              {pct(f.profit, col.settled) && (
+                <span className="ml-2 text-xs font-semibold text-slate-400">
+                  {pct(f.profit, col.settled)} of collections
+                </span>
               )}
             </span>
           </div>
@@ -642,33 +667,30 @@ function ProfitLoss({
         <div className="space-y-3">
           <div className="rounded-xl bg-slate-50 p-3">
             <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">
-              Collected vs still pending
+              Billed this period — for reference
             </p>
-            <Row label="Net profit / (loss) for the period" value={f.profit} />
-            <Row
-              label="Profit still in unpaid bills"
-              note={unrealised ? `${unrealised.bills} bills` : undefined}
-              value={pending}
-              sign="−"
-            />
-            <Row
-              label="Profit realised on money collected"
-              value={realised}
-              strong
-              cls={realised < -0.009 ? "text-rose-600" : "text-emerald-700"}
-            />
+            <Row label="Sales billed" note={`${f.bills} bills, incl. GST`} value={f.sales} />
+            <Row label="Net sales" note="ex-GST, after returns" value={f.netRevenue} />
+            <Row label="Gross profit on those bills" value={grossProfit} />
+            {unrealised && unrealised.amount > 0.009 && (
+              <Row
+                label="Of it, still in unpaid bills"
+                note={`${unrealised.bills} bills`}
+                value={unrealised.amount}
+                cls="text-amber-600"
+              />
+            )}
             <p className="mt-1 text-[11px] text-slate-400">
-              Each bill earns its profit as it is paid — the same rule the invoice list and the
-              customer ledger use per bill. Shop expenses are counted in full.
+              Not part of net profit. Unpaid bills add to profit in the month the customer pays.
             </p>
           </div>
           {prev && (
             <div className="rounded-xl bg-slate-50 p-3 text-sm">
               <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">
-                Compared with the previous period
+                Previous period
               </p>
-              <Row label="Net sales" value={prev.netRevenue} />
-              <Row label="Gross profit" value={prev.grossProfit ?? prev.netRevenue - prev.cogs} />
+              <Row label="Net collected" value={prev.collected?.settled ?? 0} />
+              <Row label="Profit earned on collections" value={prev.profitOnCollections ?? 0} />
               <Row label="Expenses" value={prev.expenses} />
               <Row
                 label={prev.profit < 0 ? "Net loss" : "Net profit"}
@@ -680,8 +702,8 @@ function ProfitLoss({
           )}
           {loss && (
             <p className="rounded-xl bg-rose-50 p-3 text-xs text-rose-700">
-              Why a loss: gross profit of {formatMoney(grossProfit)} did not cover{" "}
-              {formatMoney(f.expenses)} in commission and expenses (
+              Why a loss: profit earned on the money collected ({formatMoney(earned)}) did not
+              cover {formatMoney(f.expenses)} in commission and expenses (
               {[
                 commission > 0.009 && `commission ${formatMoney(commission)}`,
                 billCharges > 0.009 && `bill expenses ${formatMoney(billCharges)}`,

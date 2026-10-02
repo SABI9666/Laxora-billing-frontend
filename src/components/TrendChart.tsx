@@ -23,7 +23,10 @@ export type TrendPeriod = {
   serviceIncome: number;
   cogs: number;
   expenses: number;
+  // Net profit on money collected in the period (after all expenses).
   profit: number;
+  // Money settled on sale bills in the period, incl. GST (newer API builds).
+  collected?: number;
   saleBills: number;
   purchaseBills: number;
   // Stock moved between the owner's own shops, valued at item cost. Not part
@@ -121,6 +124,7 @@ export default function TrendChart() {
     const sales = data.reduce((s, d) => s + d.sales, 0);
     const purchases = data.reduce((s, d) => s + d.purchases, 0);
     const profit = data.reduce((s, d) => s + d.profit, 0);
+    const collected = data.reduce((s, d) => s + (d.collected ?? d.sales), 0);
     const transferIn = data.reduce((s, d) => s + d.transferIn, 0);
     const transferOut = data.reduce((s, d) => s + d.transferOut, 0);
     const best = data.reduce<TrendPeriod | null>(
@@ -133,7 +137,8 @@ export default function TrendChart() {
       profit,
       transferIn,
       transferOut,
-      margin: sales > 0 ? (profit / sales) * 100 : 0,
+      // Profit is earned on collections, so the margin is measured on them.
+      margin: collected > 0 ? (profit / collected) * 100 : 0,
       avgSales: data.length ? sales / data.length : 0,
       best,
     };
@@ -255,13 +260,13 @@ export default function TrendChart() {
         <Total label="Total sales" value={formatMoney(totals.sales)} dot={C.sales} />
         <Total label="Total purchase" value={formatMoney(totals.purchases)} dot={C.purchase} />
         <Total
-          label="Total profit"
+          label="Net profit (collected)"
           value={formatMoney(totals.profit)}
           dot={C.profit}
           valueClass={totals.profit >= 0 ? "text-emerald-600" : "text-rose-600"}
         />
         <Total
-          label="Profit margin"
+          label="Margin on collections"
           value={`${totals.margin.toFixed(1)}%`}
           hint={totals.best ? `best ${unit} ${totals.best.fullLabel}` : undefined}
         />
@@ -274,7 +279,7 @@ export default function TrendChart() {
           {hasOut && <LegendKey color={C.transferOut} label="Transferred out" />}
           <LegendKey color={C.purchase} label="Purchase" />
           {hasIn && <LegendKey color={C.transferIn} label="Transferred in" />}
-          <LegendKey color={C.profit} label="Profit" line />
+          <LegendKey color={C.profit} label="Net profit (on money collected)" line />
         </div>
       )}
 
@@ -444,12 +449,18 @@ export default function TrendChart() {
                     value={formatMoney(data[hover].transferIn)}
                   />
                 )}
-                <TipRow color={C.profit} label="Profit" value={formatMoney(data[hover].profit)} />
+                {data[hover].collected != null && (
+                  <TipRow color="#94a3b8" label="Collected" value={formatMoney(data[hover].collected!)} />
+                )}
+                <TipRow color={C.profit} label="Net profit (collected)" value={formatMoney(data[hover].profit)} />
                 <p className="mt-2 border-t border-white/15 pt-2 text-[11px] text-slate-300">
                   {data[hover].saleBills} sale bill{data[hover].saleBills === 1 ? "" : "s"} ·{" "}
-                  {data[hover].sales > 0
-                    ? `${((data[hover].profit / data[hover].sales) * 100).toFixed(1)}% margin`
-                    : "no sales"}
+                  {(data[hover].collected ?? data[hover].sales) > 0
+                    ? `${(
+                        (data[hover].profit / (data[hover].collected ?? data[hover].sales)) *
+                        100
+                      ).toFixed(1)}% margin on collections`
+                    : "nothing collected"}
                 </p>
               </div>
             )}
