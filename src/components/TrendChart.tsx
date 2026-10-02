@@ -52,7 +52,7 @@ const C = {
 };
 
 // Indian short money for axis ticks: ₹1.2L, ₹45K, ₹3.4Cr.
-function compactMoney(n: number): string {
+export function compactMoney(n: number): string {
   const a = Math.abs(n);
   const sign = n < 0 ? "-" : "";
   if (a >= 1e7) return `${sign}₹${(a / 1e7).toFixed(a >= 1e8 ? 0 : 1)}Cr`;
@@ -63,7 +63,7 @@ function compactMoney(n: number): string {
 
 // Round a raw step up to 1/2/2.5/5/10 × a power of ten so ticks land on
 // numbers a person would actually say out loud.
-function niceStep(range: number, targetTicks: number): number {
+export function niceStep(range: number, targetTicks: number): number {
   if (range <= 0) return 1;
   const raw = range / targetTicks;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -563,7 +563,7 @@ export default function TrendChart() {
 // topmost segment gets the 4px rounded cap; the rest stay square so the stack
 // reads as a single bar. Everything stacked here is >= 0; the one series that
 // goes negative (profit) is a line, not a bar.
-function Bar({
+export function Bar({
   x,
   w,
   y,
@@ -601,7 +601,7 @@ function Bar({
   );
 }
 
-function LegendKey({ color, label, line }: { color: string; label: string; line?: boolean }) {
+export function LegendKey({ color, label, line }: { color: string; label: string; line?: boolean }) {
   return (
     <span className="flex items-center gap-2 text-xs font-semibold text-slate-600">
       {line ? (
@@ -616,7 +616,7 @@ function LegendKey({ color, label, line }: { color: string; label: string; line?
   );
 }
 
-function TipRow({ color, label, value }: { color: string; label: string; value: string }) {
+export function TipRow({ color, label, value }: { color: string; label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 py-0.5">
       <span className="flex items-center gap-2 text-slate-300">
@@ -628,7 +628,7 @@ function TipRow({ color, label, value }: { color: string; label: string; value: 
   );
 }
 
-function Total({
+export function Total({
   label,
   value,
   dot,

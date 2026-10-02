@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import WorkClock from "@/components/WorkClock";
 import TrendChart from "@/components/TrendChart";
+import CashFlowChart from "@/components/CashFlowChart";
 
 type Activity = {
   productsAdded: number;
@@ -351,6 +352,9 @@ export default function DashboardPage() {
 
       {/* ===== Trend: sales vs purchase vs profit, by week or month ===== */}
       <TrendChart />
+
+      {/* ===== Cash flow: collected vs paid to suppliers vs expenses ===== */}
+      <CashFlowChart />
 
       {/* ===== Chart + Daily activity ===== */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
