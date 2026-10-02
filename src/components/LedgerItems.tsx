@@ -186,3 +186,100 @@ export function LedgerBills({
     </div>
   );
 }
+
+// Shop-side profit per sale bill — internal only, never on the shared or
+// printed statement. Commission is paid out of the money collected, so it is
+// shown as an expense coming off the bill's profit, not as a change in what
+// the party owes.
+export type LedgerProfitRow = {
+  invoiceId: string;
+  invoiceNumber: string;
+  date: string;
+  sales: number;
+  cost: number;
+  grossProfit: number;
+  commission: number;
+  otherCharges: number;
+  netProfit: number;
+};
+export type LedgerProfit = {
+  bills: LedgerProfitRow[];
+  totals: Omit<LedgerProfitRow, "invoiceId" | "invoiceNumber" | "date">;
+};
+
+export function LedgerProfitSummary({ profit }: { profit?: LedgerProfit | null }) {
+  if (!profit || profit.bills.length === 0) return null;
+  const t = profit.totals;
+  const showOther = t.otherCharges > 0.009;
+  const cell = "whitespace-nowrap py-1 pr-2 text-right tabular-nums";
+  const signed = (n: number) => (n < 0 ? `− ${formatMoney(-n)}` : formatMoney(n));
+  const margin = (net: number, sales: number) =>
+    sales > 0.009 ? `${((net / sales) * 100).toFixed(1)}%` : "—";
+  return (
+    <div className="mt-3">
+      <p className="flex items-baseline justify-between border-b border-gray-800 pb-1 text-xs font-bold uppercase tracking-wide">
+        <span>Profit after commission</span>
+        <span className="text-[10px] font-normal normal-case text-gray-400">
+          internal — not shown on shared / printed statement
+        </span>
+      </p>
+      <div className="overflow-x-auto">
+        <table className="mt-1 w-full border-collapse text-[11px]">
+          <thead>
+            <tr className="border-b border-gray-300 text-left uppercase text-gray-500">
+              <th className="py-1 pr-2">Bill</th>
+              <th className={cell}>Sales (ex-GST)</th>
+              <th className={cell}>Cost</th>
+              <th className={cell}>Gross profit</th>
+              <th className={cell}>Commission</th>
+              {showOther && <th className={cell}>Other charges</th>}
+              <th className={cell}>Net profit</th>
+              <th className={cell}>Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {profit.bills.map((b) => (
+              <tr key={b.invoiceId} className="border-b border-gray-100">
+                <td className="whitespace-nowrap py-1 pr-2 font-medium">{b.invoiceNumber}</td>
+                <td className={cell}>{formatMoney(b.sales)}</td>
+                <td className={cell}>− {formatMoney(b.cost)}</td>
+                <td className={cell}>{signed(b.grossProfit)}</td>
+                <td className={cell}>{b.commission > 0.009 ? `− ${formatMoney(b.commission)}` : "—"}</td>
+                {showOther && (
+                  <td className={cell}>
+                    {b.otherCharges > 0.009 ? `− ${formatMoney(b.otherCharges)}` : "—"}
+                  </td>
+                )}
+                <td
+                  className={`${cell} font-semibold ${
+                    b.netProfit < 0 ? "text-red-600" : "text-green-700"
+                  }`}
+                >
+                  {signed(b.netProfit)}
+                </td>
+                <td className={cell}>{margin(b.netProfit, b.sales)}</td>
+              </tr>
+            ))}
+            <tr className="border-t border-gray-800 font-bold">
+              <td className="py-1 pr-2">Total</td>
+              <td className={cell}>{formatMoney(t.sales)}</td>
+              <td className={cell}>− {formatMoney(t.cost)}</td>
+              <td className={cell}>{signed(t.grossProfit)}</td>
+              <td className={cell}>{t.commission > 0.009 ? `− ${formatMoney(t.commission)}` : "—"}</td>
+              {showOther && <td className={cell}>− {formatMoney(t.otherCharges)}</td>}
+              <td className={`${cell} ${t.netProfit < 0 ? "text-red-600" : "text-green-700"}`}>
+                {signed(t.netProfit)}
+              </td>
+              <td className={cell}>{margin(t.netProfit, t.sales)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-1 text-[10px] text-gray-500">
+        Net profit = sales less returns (ex-GST) − cost of goods − commission
+        {showOther ? " − other bill charges" : ""}. Commission is paid out of the amount collected,
+        so it reduces profit, not the party&apos;s balance.
+      </p>
+    </div>
+  );
+}

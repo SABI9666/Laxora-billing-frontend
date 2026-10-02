@@ -144,7 +144,7 @@ export default function LedgerSheet({ data, business }: { data: Ledger; business
             )}
             {data.totals.chargesGiven > 0 && (
               <span>
-                Commission given <b>{formatMoney(data.totals.chargesGiven)}</b>
+                Commission paid <b>{formatMoney(data.totals.chargesGiven)}</b>
               </span>
             )}
           </div>
