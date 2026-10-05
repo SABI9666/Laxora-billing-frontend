@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import Modal from "@/components/Modal";
 import {
   Bar,
   LegendKey,
@@ -32,6 +33,13 @@ type CashPeriod = {
   expenses: number;
   otherIncome: number;
   net: number;
+  // Revenue generated in the period (bills raised) — newer API builds.
+  sales?: number;
+  saleBills?: number;
+  purchases?: number;
+  purchaseBills?: number;
+  // Cash/bank expenses by category, commission included.
+  expenseBreakdown?: { category: string; amount: number }[];
 };
 
 // Categorical slots 1, 2, 7 (+ 3 for the line) of the reference palette,
@@ -58,6 +66,9 @@ export default function CashFlowChart() {
   const [view, setView] = useState<"chart" | "table">("chart");
   const [hover, setHover] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
+  // Period open in the summary popup (index into data), or "all" for the
+  // whole window.
+  const [summary, setSummary] = useState<number | "all" | null>(null);
   const unit = bucket === "week" ? "week" : "month";
 
   useEffect(() => {
@@ -138,6 +149,14 @@ export default function CashFlowChart() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {hasData && (
+            <button
+              onClick={() => setSummary(data.length - 1)}
+              className="rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+            >
+              📊 {bucket === "week" ? "This week" : "This month"}&apos;s summary
+            </button>
+          )}
           <div className="flex items-center gap-1 rounded-full bg-slate-100 p-0.5">
             {(
               [
@@ -268,6 +287,8 @@ export default function CashFlowChart() {
                   fillOpacity={hover === i ? 0.05 : 0}
                   onMouseEnter={() => setHover(i)}
                   onMouseLeave={() => setHover(null)}
+                  onClick={() => setSummary(i)}
+                  className="cursor-pointer"
                 />
               ))}
 
@@ -376,6 +397,7 @@ export default function CashFlowChart() {
                 <div className="mt-1 border-t border-white/15 pt-1">
                   <TipRow color={C.net} label="Net cash flow" value={formatMoney(data[hover].net)} />
                 </div>
+                <p className="mt-1.5 text-[11px] text-slate-400">Click for the full summary</p>
               </div>
             )}
           </div>
@@ -398,8 +420,12 @@ export default function CashFlowChart() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {[...data].reverse().map((d) => (
-                <tr key={d.key} className="transition hover:bg-slate-50/60">
-                  <td className="table-td font-semibold text-slate-800">{d.fullLabel}</td>
+                <tr
+                  key={d.key}
+                  className="cursor-pointer transition hover:bg-slate-50/60"
+                  onClick={() => setSummary(data.indexOf(d))}
+                >
+                  <td className="table-td font-semibold text-brand">{d.fullLabel}</td>
                   <td className="table-td text-right tabular-nums">{formatMoney(d.collected)}</td>
                   {hasIncome && (
                     <td className="table-td text-right tabular-nums">{formatMoney(d.otherIncome)}</td>
@@ -419,7 +445,15 @@ export default function CashFlowChart() {
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-slate-200 bg-slate-50/60">
-                <td className="table-td font-bold text-slate-800">Total</td>
+                <td className="table-td font-bold text-slate-800">
+                  Total{" "}
+                  <button
+                    onClick={() => setSummary("all")}
+                    className="ml-1 text-xs font-semibold text-brand hover:underline"
+                  >
+                    summary
+                  </button>
+                </td>
                 <td className="table-td text-right font-bold tabular-nums">{formatMoney(totals.collected)}</td>
                 {hasIncome && (
                   <td className="table-td text-right font-bold tabular-nums">
@@ -441,6 +475,252 @@ export default function CashFlowChart() {
           </table>
         </div>
       )}
+
+      {summary !== null && data.length > 0 && (
+        <CashSummary
+          data={data}
+          index={summary}
+          unit={unit}
+          onNavigate={setSummary}
+          onClose={() => setSummary(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cash flow summary popup — one period (or the whole window) as a statement:
+// revenue generated, money in, money out, and what was left.
+// ---------------------------------------------------------------------------
+function CashSummary({
+  data,
+  index,
+  unit,
+  onNavigate,
+  onClose,
+}: {
+  data: CashPeriod[];
+  index: number | "all";
+  unit: "week" | "month";
+  onNavigate: (i: number | "all") => void;
+  onClose: () => void;
+}) {
+  const p: CashPeriod = useMemo(() => {
+    if (index !== "all") return data[index];
+    const sum = (k: keyof CashPeriod) => data.reduce((s, d) => s + (Number(d[k]) || 0), 0);
+    const cats = new Map<string, number>();
+    for (const d of data)
+      for (const c of d.expenseBreakdown ?? []) cats.set(c.category, (cats.get(c.category) ?? 0) + c.amount);
+    return {
+      key: "all",
+      label: "All",
+      fullLabel: `${data[0].fullLabel} – ${data[data.length - 1].fullLabel}`,
+      received: sum("received"),
+      refunds: sum("refunds"),
+      collected: sum("collected"),
+      supplierPaid: sum("supplierPaid"),
+      supplierRefunds: sum("supplierRefunds"),
+      toSuppliers: sum("toSuppliers"),
+      commission: sum("commission"),
+      expenses: sum("expenses"),
+      otherIncome: sum("otherIncome"),
+      net: sum("net"),
+      sales: sum("sales"),
+      saleBills: sum("saleBills"),
+      purchases: sum("purchases"),
+      purchaseBills: sum("purchaseBills"),
+      expenseBreakdown: [...cats.entries()]
+        .map(([category, amount]) => ({ category, amount }))
+        .sort((a, b) => b.amount - a.amount),
+    };
+  }, [data, index]);
+
+  const moneyIn = p.collected + p.otherIncome;
+  const moneyOut = p.toSuppliers + p.commission + p.expenses;
+  const positive = p.net >= 0;
+  const sales = p.sales ?? 0;
+  const collectionRate = sales > 0.009 ? Math.min(999, (p.collected / sales) * 100) : null;
+  const scaleMax = Math.max(moneyIn, moneyOut, 1);
+  const breakdown = (p.expenseBreakdown ?? []).filter((c) => c.amount > 0.009);
+  const canPrev = index !== "all" && index > 0;
+  const canNext = index !== "all" && index < data.length - 1;
+
+  const Line = ({
+    label,
+    value,
+    sign,
+    sub,
+    strong,
+    note,
+  }: {
+    label: string;
+    value: number;
+    sign?: "+" | "−";
+    sub?: boolean;
+    strong?: boolean;
+    note?: string;
+  }) => (
+    <div
+      className={`flex items-baseline justify-between gap-3 py-1 ${
+        strong ? "border-t border-slate-200 pt-1.5 font-semibold text-slate-900" : "text-slate-600"
+      } ${sub ? "pl-4 text-xs text-slate-400" : "text-sm"}`}
+    >
+      <span>
+        {label}
+        {note && <span className="ml-1.5 text-xs text-slate-400">{note}</span>}
+      </span>
+      <span className="whitespace-nowrap tabular-nums">
+        {sign ? `${sign} ` : ""}
+        {formatMoney(Math.abs(value))}
+      </span>
+    </div>
+  );
+
+  return (
+    <Modal title={`Cash flow summary · ${p.fullLabel}`} onClose={onClose} wide>
+      {/* period navigation */}
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <button
+          disabled={!canPrev}
+          onClick={() => canPrev && onNavigate((index as number) - 1)}
+          className="rounded-lg border border-slate-200 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+        >
+          ‹ Previous {unit}
+        </button>
+        <button
+          onClick={() => onNavigate(index === "all" ? data.length - 1 : "all")}
+          className="text-xs font-semibold text-brand hover:underline"
+        >
+          {index === "all" ? `Back to latest ${unit}` : `Whole ${data.length}-${unit} view`}
+        </button>
+        <button
+          disabled={!canNext}
+          onClick={() => canNext && onNavigate((index as number) + 1)}
+          className="rounded-lg border border-slate-200 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+        >
+          Next {unit} ›
+        </button>
+      </div>
+
+      {/* headline tiles */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Tile
+          label="Revenue generated"
+          value={formatMoney(sales)}
+          hint={`${p.saleBills ?? 0} sale bill${p.saleBills === 1 ? "" : "s"} raised`}
+        />
+        <Tile label="Money in" value={formatMoney(moneyIn)} dot={C.collected} hint="collected + other income" />
+        <Tile label="Money out" value={formatMoney(moneyOut)} dot={C.suppliers} hint="suppliers + expenses" />
+        <Tile
+          label="Net cash flow"
+          value={formatMoney(p.net)}
+          dot={C.net}
+          valueClass={positive ? "text-emerald-600" : "text-rose-600"}
+          hint={positive ? "surplus" : "deficit"}
+        />
+      </div>
+
+      {/* in vs out at a glance — one scale, so lengths compare directly */}
+      <div className="mt-4 space-y-1.5 rounded-xl bg-slate-50 p-3">
+        {[
+          { label: "In", value: moneyIn, color: C.collected },
+          { label: "Out", value: moneyOut, color: C.suppliers },
+        ].map((b) => (
+          <div key={b.label} className="flex items-center gap-3 text-xs">
+            <span className="w-7 font-semibold text-slate-500">{b.label}</span>
+            <div className="h-3 flex-1 rounded bg-white">
+              <div
+                className="h-3 rounded"
+                style={{ width: `${(Math.max(0, b.value) / scaleMax) * 100}%`, background: b.color }}
+              />
+            </div>
+            <span className="w-28 text-right font-semibold tabular-nums text-slate-700">
+              {formatMoney(b.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* the statement */}
+      <div className="mt-4 grid gap-6 md:grid-cols-2">
+        <div>
+          <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">Money in</p>
+          <Line label="Received from customers" value={p.received} />
+          {p.refunds > 0.009 && <Line label="Refunds paid back" value={p.refunds} sign="−" />}
+          {p.otherIncome > 0.009 && <Line label="Service / other income" value={p.otherIncome} sign="+" />}
+          <Line label="Total money in" value={moneyIn} strong />
+          {collectionRate !== null && (
+            <p className="mt-1 text-[11px] text-slate-400">
+              {`Collected ${formatMoney(p.collected)} against ${formatMoney(sales)} billed in this ${
+                index === "all" ? "window" : unit
+              } (${collectionRate.toFixed(0)}%). Collections include payments on older bills.`}
+            </p>
+          )}
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">Money out</p>
+          <Line label="Paid to suppliers" value={p.toSuppliers} />
+          {p.supplierRefunds > 0.009 && (
+            <Line label="refunds received from suppliers" value={p.supplierRefunds} sub />
+          )}
+          <Line label="Commission" value={p.commission} />
+          <Line label="Other expenses" value={p.expenses} />
+          {breakdown
+            .filter((c) => !/commission/i.test(c.category))
+            .map((c) => (
+              <Line key={c.category} label={c.category} value={c.amount} sub />
+            ))}
+          <Line label="Total money out" value={moneyOut} strong />
+        </div>
+      </div>
+
+      <div
+        className={`mt-4 flex items-center justify-between rounded-xl px-4 py-3 ${
+          positive ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"
+        }`}
+      >
+        <span className="font-bold">{positive ? "Net cash surplus" : "Net cash deficit"}</span>
+        <span className="text-lg font-extrabold tabular-nums">{formatMoney(Math.abs(p.net))}</span>
+      </div>
+      <p className="mt-3 text-sm text-slate-600">
+        {index === "all" ? "Over these " + data.length + " " + unit + "s" : `In ${p.fullLabel}`} you raised{" "}
+        <b>{formatMoney(sales)}</b> in sales, collected <b>{formatMoney(moneyIn)}</b> and paid out{" "}
+        <b>{formatMoney(moneyOut)}</b>
+        {p.purchases ? ` (purchases billed: ${formatMoney(p.purchases)})` : ""} —{" "}
+        {positive ? (
+          <span className="font-semibold text-emerald-700">{formatMoney(p.net)} more came in than went out.</span>
+        ) : (
+          <span className="font-semibold text-rose-700">{formatMoney(-p.net)} more went out than came in.</span>
+        )}
+      </p>
+    </Modal>
+  );
+}
+
+function Tile({
+  label,
+  value,
+  hint,
+  dot,
+  valueClass = "text-slate-900",
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  dot?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-slate-200 px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot }} />}
+        <span className="truncate">{label}</span>
+      </p>
+      <p className={`mt-0.5 truncate text-lg font-extrabold tracking-tight ${valueClass}`} title={value}>
+        {value}
+      </p>
+      {hint && <p className="truncate text-[11px] text-slate-400">{hint}</p>}
     </div>
   );
 }
