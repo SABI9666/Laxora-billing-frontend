@@ -499,12 +499,15 @@ function CashSummary({
   unit,
   onNavigate,
   onClose,
+  footer,
 }: {
   data: CashPeriod[];
   index: number | "all";
   unit: "week" | "month";
   onNavigate: (i: number | "all") => void;
   onClose: () => void;
+  // Extra controls under the statement (e.g. "don't show again").
+  footer?: React.ReactNode;
 }) {
   const p: CashPeriod = useMemo(() => {
     if (index !== "all") return data[index];
@@ -694,6 +697,7 @@ function CashSummary({
           <span className="font-semibold text-rose-700">{formatMoney(-p.net)} more went out than came in.</span>
         )}
       </p>
+      {footer}
     </Modal>
   );
 }
@@ -733,10 +737,13 @@ function Tile({
 export function MonthlySummary({
   start,
   onClose,
+  onDismissMonth,
 }: {
   // "current" opens on this month; "previous" on the month that just ended.
   start: "current" | "previous";
   onClose: () => void;
+  // When given, a "Don't show again this month" button is shown.
+  onDismissMonth?: () => void;
 }) {
   const [data, setData] = useState<CashPeriod[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -768,6 +775,37 @@ export function MonthlySummary({
       </Modal>
     );
   return (
-    <CashSummary data={data} index={index} unit="month" onNavigate={setIndex} onClose={onClose} />
+    <CashSummary
+      data={data}
+      index={index}
+      unit="month"
+      onNavigate={setIndex}
+      onClose={onClose}
+      footer={
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+          <span className="text-[11px] text-slate-400">
+            {onDismissMonth
+              ? "This summary opens again 1 minute after you close it."
+              : "Open it any time from 📊 Monthly summary on the dashboard."}
+          </span>
+          <div className="flex gap-2">
+            {onDismissMonth && (
+              <button
+                onClick={onDismissMonth}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Don&apos;t show again this month
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      }
+    />
   );
 }
