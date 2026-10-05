@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, getBusinessId } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import WorkClock from "@/components/WorkClock";
 import TrendChart from "@/components/TrendChart";
@@ -93,21 +93,47 @@ export default function DashboardPage() {
   const [ov, setOv] = useState<Overview | null>(null);
   const [recent, setRecent] = useState<Invoice[]>([]);
   const [stale, setStale] = useState(false);
-  // Monthly cash summary popup: opened from the banner, and once at the start
-  // of every month for the month that just ended.
+  // Monthly cash summary popup. It opens by itself on the dashboard for the
+  // active shop, comes back 1 minute after it is closed, and stays away only
+  // once "Don't show again this month" is pressed — remembered per shop and
+  // per month. The banner button opens it any time.
   const [summaryOpen, setSummaryOpen] = useState<"current" | "previous" | null>(null);
-  useEffect(() => {
+  const reopenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const summaryOffKey = () => {
+    const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+    return `laxora-month-summary-off-${getBusinessId() ?? "shop"}-${ist.toISOString().slice(0, 7)}`;
+  };
+  const summaryDismissed = () => {
     try {
-      const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
-      const key = `laxora-month-summary-${ist.toISOString().slice(0, 7)}`;
-      if (!localStorage.getItem(key)) {
-        localStorage.setItem(key, "1");
-        setSummaryOpen("previous");
-      }
+      return !!localStorage.getItem(summaryOffKey());
     } catch {
-      /* storage blocked — the banner button still works */
+      return false;
     }
+  };
+  useEffect(() => {
+    if (!summaryDismissed()) setSummaryOpen("previous");
+    return () => {
+      if (reopenTimer.current) clearTimeout(reopenTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  function closeSummary() {
+    setSummaryOpen(null);
+    if (reopenTimer.current) clearTimeout(reopenTimer.current);
+    if (!summaryDismissed())
+      reopenTimer.current = setTimeout(() => {
+        if (!summaryDismissed()) setSummaryOpen("previous");
+      }, 60_000);
+  }
+  function dismissSummaryForMonth() {
+    try {
+      localStorage.setItem(summaryOffKey(), "1");
+    } catch {
+      /* storage blocked — it just keeps reminding */
+    }
+    if (reopenTimer.current) clearTimeout(reopenTimer.current);
+    setSummaryOpen(null);
+  }
   const [activityDay, setActivityDay] = useState<string | null>(null);
   // Stat-card period: this month (default), this quarter, or this FY.
   const [period, setPeriod] = useState<"month" | "quarter" | "year">("month");
@@ -271,7 +297,11 @@ export default function DashboardPage() {
       </div>
 
       {summaryOpen && (
-        <MonthlySummary start={summaryOpen} onClose={() => setSummaryOpen(null)} />
+        <MonthlySummary
+          start={summaryOpen}
+          onClose={closeSummary}
+          onDismissMonth={summaryDismissed() ? undefined : dismissSummaryForMonth}
+        />
       )}
 
       {stale && (
