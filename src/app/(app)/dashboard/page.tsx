@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { formatMoney, formatDate } from "@/lib/format";
 import WorkClock from "@/components/WorkClock";
 import TrendChart from "@/components/TrendChart";
-import CashFlowChart from "@/components/CashFlowChart";
+import CashFlowChart, { MonthlySummary } from "@/components/CashFlowChart";
 
 type Activity = {
   productsAdded: number;
@@ -93,6 +93,21 @@ export default function DashboardPage() {
   const [ov, setOv] = useState<Overview | null>(null);
   const [recent, setRecent] = useState<Invoice[]>([]);
   const [stale, setStale] = useState(false);
+  // Monthly cash summary popup: opened from the banner, and once at the start
+  // of every month for the month that just ended.
+  const [summaryOpen, setSummaryOpen] = useState<"current" | "previous" | null>(null);
+  useEffect(() => {
+    try {
+      const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const key = `laxora-month-summary-${ist.toISOString().slice(0, 7)}`;
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, "1");
+        setSummaryOpen("previous");
+      }
+    } catch {
+      /* storage blocked — the banner button still works */
+    }
+  }, []);
   const [activityDay, setActivityDay] = useState<string | null>(null);
   // Stat-card period: this month (default), this quarter, or this FY.
   const [period, setPeriod] = useState<"month" | "quarter" | "year">("month");
@@ -227,6 +242,12 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setSummaryOpen("current")}
+              className="rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/25"
+            >
+              📊 Monthly summary
+            </button>
             <Link
               href="/invoices/new"
               className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-brand-700 shadow-sm transition hover:bg-indigo-50"
@@ -248,6 +269,10 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {summaryOpen && (
+        <MonthlySummary start={summaryOpen} onClose={() => setSummaryOpen(null)} />
+      )}
 
       {stale && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
