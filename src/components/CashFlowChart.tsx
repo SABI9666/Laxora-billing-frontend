@@ -724,3 +724,50 @@ function Tile({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Monthly summary popup on its own — opened from the dashboard banner, and
+// automatically once at the start of each month for the month that just
+// ended. Loads its own monthly figures so it works wherever it is opened.
+// ---------------------------------------------------------------------------
+export function MonthlySummary({
+  start,
+  onClose,
+}: {
+  // "current" opens on this month; "previous" on the month that just ended.
+  start: "current" | "previous";
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<CashPeriod[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [index, setIndex] = useState<number | "all" | null>(null);
+
+  useEffect(() => {
+    api<{ cashflow: CashPeriod[] }>(`/api/dashboard/cashflow?bucket=month&periods=12`)
+      .then((r) => {
+        setData(r.cashflow);
+        const last = r.cashflow.length - 1;
+        setIndex(start === "previous" ? Math.max(0, last - 1) : last);
+      })
+      .catch(() => setFailed(true));
+  }, [start]);
+
+  if (failed)
+    return (
+      <Modal title="Monthly summary" onClose={onClose}>
+        <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          The monthly summary needs the latest backend. Redeploy the billing backend (Cloud Run)
+          and open this again.
+        </p>
+      </Modal>
+    );
+  if (!data || index === null)
+    return (
+      <Modal title="Monthly summary" onClose={onClose}>
+        <div className="h-48 animate-pulse rounded-xl bg-slate-100" />
+      </Modal>
+    );
+  return (
+    <CashSummary data={data} index={index} unit="month" onNavigate={setIndex} onClose={onClose} />
+  );
+}
